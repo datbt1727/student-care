@@ -410,7 +410,7 @@ ensureImports();render();
  window.google={script:{get run(){let success,failure;return {withSuccessHandler(fn){success=fn;return this},withFailureHandler(fn){failure=fn;return this},api(action,p){send(action,p).then(r=>success?.(r)).catch(()=>failure?.(new Error('Không kết nối được máy chủ. Chưa xác nhận lưu.')));}}}}};
  $('#provision-box')?.remove();$('#recovery-form')?.closest('details')?.remove();
  $('#auth-password').autocomplete='current-password';$('#auth-username').autocomplete='username';
- const options=document.createElement('div');options.className='secure-login-options';options.innerHTML='<label>Mã xác thực hai bước<input id="auth-totp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="6 chữ số từ ứng dụng xác thực"></label><label class="remember-choice"><input id="auth-password-manager" type="checkbox" checked> Cho phép trình duyệt gợi ý lưu mật khẩu</label><label class="remember-choice"><input id="auth-remember" type="checkbox"> Duy trì đăng nhập trên thiết bị này (tối đa 7 ngày)</label><small>Lưu mật khẩu bằng trình quản lý mật khẩu của trình duyệt. Không chọn duy trì đăng nhập trên máy dùng chung. Không chọn: khóa sau 60 phút không hoạt động. Có chọn: khóa sau 24 giờ không hoạt động, thời hạn tối đa 7 ngày.</small>';
+ const options=document.createElement('div');options.className='secure-login-options';options.innerHTML='<label>Mã xác thực hai bước<input id="auth-totp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="Nhập mã 6 chữ số"></label><label class="remember-choice"><input id="auth-password-manager" type="checkbox" checked> Gợi ý lưu mật khẩu</label><label class="remember-choice"><input id="auth-remember" type="checkbox"> Duy trì đăng nhập · 7 ngày</label><small>Lưu mật khẩu bằng trình quản lý mật khẩu của trình duyệt. Không chọn duy trì đăng nhập trên máy dùng chung. Không chọn: khóa sau 60 phút không hoạt động. Có chọn: khóa sau 24 giờ không hoạt động, thời hạn tối đa 7 ngày.</small>';
  $('#login-submit').before(options);
  $('#auth-password-manager').onchange=()=>{$('#auth-password').autocomplete=$('#auth-password-manager').checked?'current-password':'off';$('#login-form').autocomplete=$('#auth-password-manager').checked?'on':'off';};
  for(const id of ['new-user-password','password-new','password-confirm','reset-password']){const input=$('#'+id);if(input){input.minLength=12;input.maxLength=128;input.autocomplete='new-password';input.title='12–128 ký tự, có ký tự đặc biệt';}}
@@ -1561,5 +1561,85 @@ body.console-ui .auth-card{border-radius:24px!important}
  const frame=document.createElement('div');frame.className='workspace-frame';
  frame.setAttribute('aria-label','Không gian Student Care');
  main.parentNode.insertBefore(frame,main);frame.append(rail,main);
+})();
+</script><style>/* Student Care: refined glass surfaces and viewport-safe authentication. */
+html{ -webkit-text-size-adjust:100%;scrollbar-gutter:stable }
+body.console-ui{color:#263e58!important;--ink:#263e58;--muted:#586d84}
+body.console-ui *,body.console-ui *::before,body.console-ui *::after{box-sizing:border-box}
+body.console-ui .workspace-frame{background:linear-gradient(125deg,#ffffff4a,#daeafa18 48%,#f1d9ed24)!important;border-color:#ffffffb8;box-shadow:inset 0 1px #fff,0 24px 80px #334e7320}
+body.console-ui .workspace-frame .panel,body.console-ui .workspace-frame .card{background:linear-gradient(135deg,#ffffff8a,#ffffff43 65%,#ecf4ff55)!important;border:1px solid #ffffffc4!important;box-shadow:inset 0 1px #fff,0 8px 28px #45618110!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body.console-ui .workspace-frame .console-header{background:#f4f9ff85!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+body.console-ui .workspace-frame .workspace-rail{background:linear-gradient(165deg,#e9f6ff73,#f4eaf854)!important}
+body.console-ui .workspace-frame .console-top-tab{color:#405b76!important;font-weight:600}
+body.console-ui .workspace-frame .console-top-tab.active{background:linear-gradient(110deg,#effaffd9,#e0e9f8a6)!important;color:#1e4b76!important;box-shadow:inset 3px 0 #659bc5,0 4px 12px #56769c12!important}
+body.console-ui :is(input,select,textarea){color:#29435e!important}
+body.console-ui :is(button,input,select,textarea,summary,a):focus-visible{outline:3px solid #397cb1!important;outline-offset:3px}
+body.console-ui :is(.panel-heading h3,.intro h2){color:#29435e!important;letter-spacing:-.35px}
+body.console-ui :is(.panel-heading p,.intro p,.method-note){color:#566c84!important;line-height:1.6}
+body.console-ui .table-wrap{max-width:100%;overflow:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+body.console-ui th{background:#e6eff9f5!important;color:#304c68!important}
+body.console-ui td{color:#314a62}
+body.console-ui tbody tr:hover>td{background-color:#e7f3ffb8!important}
+body.console-ui dialog{max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 24px)!important;overflow:auto;overscroll-behavior:contain;border:1px solid #fff!important;border-radius:20px!important;background:#f3f7fdf5!important}
+html.sc-auth-open{overflow:hidden!important;overscroll-behavior:none;zoom:1!important;scrollbar-gutter:auto}
+html.sc-auth-open body.console-ui{height:100dvh!important;min-height:0!important;overflow:hidden!important;margin:0!important;padding:0!important}
+html.sc-auth-open .workspace-frame{visibility:hidden;pointer-events:none}
+body.console-ui .auth-gate:not([hidden]){position:fixed!important;inset:0!important;z-index:1000!important;width:100%!important;height:100vh!important;height:100dvh!important;min-height:0!important;max-height:none!important;display:grid!important;grid-template-columns:minmax(0,1fr)!important;place-items:center!important;gap:0!important;overflow:hidden!important;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))!important}
+body.console-ui .auth-gate .auth-story,body.console-ui .auth-gate .auth-support,body.console-ui .auth-gate .auth-card>img,body.console-ui .auth-gate .auth-card>p:not(#auth-message){display:none!important}
+body.console-ui .auth-gate .auth-card{position:relative!important;inset:auto!important;transform:none!important;align-self:center!important;justify-self:center!important;display:block!important;width:min(100%,408px)!important;min-width:0!important;max-width:408px!important;height:auto!important;min-height:0!important;max-height:100%!important;overflow:auto!important;overscroll-behavior:contain;margin:0!important;padding:26px!important;border:1px solid #ffffffdf!important;border-radius:24px!important;background:linear-gradient(135deg,#ffffff9c,#ffffff50 60%,#eff4ff73)!important;box-shadow:inset 0 1px #fff,0 24px 72px #425f8224!important;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);text-align:left!important}
+body.console-ui .auth-gate .auth-card:before{height:1px!important;opacity:.8}
+body.console-ui .auth-gate .auth-wordmark{margin:0 0 16px!important;justify-content:center;max-height:52px}
+body.console-ui .auth-gate .sc-brand-symbol{width:38px!important;height:38px!important;flex-basis:38px!important}
+body.console-ui .auth-gate .sc-brand-name{font-size:21px!important;color:#294761!important}
+body.console-ui .auth-gate .sc-brand-caption{font-size:9px!important;color:#526a82!important}
+body.console-ui .auth-gate h1{font-size:24px!important;line-height:1.2!important;margin:0 0 20px!important;text-align:center!important;color:#29435e!important;letter-spacing:-.7px}
+body.console-ui .auth-gate #login-form{display:grid!important;gap:13px!important;margin:0!important;padding:0!important;width:100%!important}
+body.console-ui .auth-gate #login-form label{display:flex!important;flex-direction:column!important;align-items:stretch!important;justify-content:flex-start!important;gap:6px!important;margin:0!important;padding:0!important;font-size:13px!important;line-height:1.4!important;font-weight:550!important;color:#3e5670!important;text-align:left!important;min-width:0}
+body.console-ui .auth-gate #login-form input:not([type=checkbox]){display:block!important;width:100%!important;height:44px!important;min-height:44px!important;max-height:44px!important;margin:0!important;padding:10px 12px!important;font-size:16px!important;line-height:22px!important;border:1px solid #ffffffeb!important;border-radius:10px!important;background:#f9fcff8c!important;box-shadow:inset 0 1px 3px #4764840b!important}
+body.console-ui .auth-gate #login-form input::placeholder{color:#778ba0!important;font-size:14px!important}
+body.console-ui .auth-gate .secure-login-options{display:grid!important;gap:11px!important;margin:0!important;padding:0!important}
+body.console-ui .auth-gate #login-form .remember-choice{display:flex!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;gap:9px!important;font-size:12px!important;font-weight:400!important;min-height:24px!important}
+body.console-ui .auth-gate #login-form .remember-choice input[type=checkbox]{display:block!important;appearance:auto!important;-webkit-appearance:checkbox!important;flex:0 0 17px!important;width:17px!important;height:17px!important;min-height:17px!important;max-height:17px!important;margin:0!important;padding:0!important;border-radius:4px!important;box-shadow:none!important;accent-color:#477da7}
+body.console-ui .auth-gate .secure-login-options small{display:none!important}
+body.console-ui .auth-gate #login-submit{width:100%!important;min-height:44px!important;margin:3px 0 0!important;padding:11px 16px!important;border-radius:11px!important;font-size:15px!important;line-height:22px!important;font-weight:650!important;color:#fff!important;background:linear-gradient(120deg,#456f96,#617da5)!important;border:1px solid #7798b7!important;box-shadow:inset 0 1px #ffffff40,0 6px 15px #476f9626!important}
+body.console-ui .auth-gate #auth-message{font-size:12px!important;line-height:1.45!important;min-height:0!important;margin:12px 0 0!important;padding:0!important;text-align:center!important;overflow-wrap:anywhere}
+body.console-ui .auth-gate #auth-message:empty{display:none!important}
+html.sc-auth-open #operation-status{display:none!important}
+@media(max-height:620px){body.console-ui .auth-gate .auth-card{padding:18px 22px!important}body.console-ui .auth-gate h1{font-size:21px!important;margin-bottom:12px!important}body.console-ui .auth-gate .auth-wordmark{margin-bottom:10px!important}body.console-ui .auth-gate #login-form,body.console-ui .auth-gate .secure-login-options{gap:8px!important}}
+@media(max-width:760px){
+ body.console-ui{--glass-frame-gutter:8px;overflow-x:clip}
+ body.console-ui .workspace-frame{width:calc(100% - 16px);margin:8px;min-width:0}
+ body.console-ui .workspace-frame :is(.grid,.upload-grid,.stats,.kpis){grid-template-columns:minmax(0,1fr)!important}
+ body.console-ui .workspace-frame :is(.panel,.card){padding:16px!important;min-width:0}
+ body.console-ui .workspace-frame :is(.panel-heading,.intro,.filters){flex-wrap:wrap!important;gap:10px!important}
+ body.console-ui .workspace-frame .filters>:is(input,select){flex:1 1 140px!important;min-width:0!important;max-width:100%!important}
+ body.console-ui .workspace-frame :is(button,.nav,summary,select){min-height:44px!important}
+ body.console-ui .workspace-frame :is(input,select,textarea){font-size:16px!important;max-width:100%}
+ body.console-ui .workspace-frame .console-top-tab{font-size:12px!important;min-height:44px!important}
+ body.console-ui .workspace-frame .console-secondary-tabs{flex-wrap:nowrap!important;overflow-x:auto;overscroll-behavior-x:contain}
+ body.console-ui .workspace-frame .console-secondary-tabs .nav{white-space:nowrap;flex-shrink:0;font-size:12px!important}
+ body.console-ui .workspace-frame .workspace-label,body.console-ui .workspace-frame .workspace-foot{display:none!important}
+ body.console-ui .workspace-frame .console-header{position:relative!important}
+ body.console-ui .workspace-frame .console-header .global-student-search>input{font-size:16px!important;min-height:44px!important}
+ body.console-ui .workspace-frame .console-header .header-right{width:100%;justify-content:space-between}
+ body.console-ui dialog{width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;padding:16px!important;max-height:calc(100dvh - 16px)!important}
+ body.console-ui .profile-layout,body.console-ui .profile-grid{grid-template-columns:minmax(0,1fr)!important}
+}
+@media(prefers-reduced-transparency:reduce){body.console-ui .auth-gate .auth-card,body.console-ui .workspace-frame .panel,body.console-ui .workspace-frame .card{background:#f3f7fd!important}}
+@media print{html.sc-auth-open,html.sc-auth-open body.console-ui{height:auto!important;overflow:visible!important}body.console-ui .workspace-frame .panel{box-shadow:none!important;backdrop-filter:none}}
+</style><script>/* Keep authentication independent of workspace zoom and page scrolling. */
+(function(){
+ const gate=document.querySelector('#auth-gate');if(!gate)return;
+ // The fixed overlay must sit outside the inert workspace and glass ancestors.
+ document.body.append(gate);
+ const message=document.querySelector('#auth-message');
+ if(message){message.setAttribute('role','status');message.setAttribute('aria-live','polite');if(message.textContent==='Đăng nhập bằng tài khoản và ứng dụng xác thực hai bước.')message.textContent='';}
+ const remember=document.querySelector('#auth-remember');if(remember)remember.title='Tối đa 7 ngày. Chỉ sử dụng trên thiết bị cá nhân.';
+ const manager=document.querySelector('#auth-password-manager');if(manager)manager.title='Cho phép trình duyệt gợi ý lưu mật khẩu.';
+ const sync=()=>{
+ const open=!gate.hidden;document.documentElement.classList.toggle('sc-auth-open',open);
+ const frame=document.querySelector('.workspace-frame');if(frame)frame.inert=open;
+ };
+ sync();if(typeof MutationObserver!=='undefined')new MutationObserver(sync).observe(gate,{attributes:true,attributeFilter:['hidden']});
 })();
 </script></body></html>
