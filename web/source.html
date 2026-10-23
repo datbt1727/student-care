@@ -410,7 +410,7 @@ ensureImports();render();
  window.google={script:{get run(){let success,failure;return {withSuccessHandler(fn){success=fn;return this},withFailureHandler(fn){failure=fn;return this},api(action,p){send(action,p).then(r=>success?.(r)).catch(()=>failure?.(new Error('Không kết nối được máy chủ. Chưa xác nhận lưu.')));}}}}};
  $('#provision-box')?.remove();$('#recovery-form')?.closest('details')?.remove();
  $('#auth-password').autocomplete='current-password';$('#auth-username').autocomplete='username';
- const options=document.createElement('div');options.className='secure-login-options';options.innerHTML='<label>Mã xác thực hai bước<input id="auth-totp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="Nhập mã 6 chữ số"></label><label class="remember-choice"><input id="auth-password-manager" type="checkbox" checked> Gợi ý lưu mật khẩu</label><label class="remember-choice"><input id="auth-remember" type="checkbox"> Duy trì đăng nhập · 7 ngày</label><small>Lưu mật khẩu bằng trình quản lý mật khẩu của trình duyệt. Không chọn duy trì đăng nhập trên máy dùng chung. Không chọn: khóa sau 60 phút không hoạt động. Có chọn: khóa sau 24 giờ không hoạt động, thời hạn tối đa 7 ngày.</small>';
+ const options=document.createElement('div');options.className='secure-login-options';options.innerHTML='<label>Mã xác thực hai bước<input id="auth-totp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="Nhập mã 6 chữ số"></label><label class="remember-choice"><input id="auth-password-manager" type="checkbox" checked> Gợi ý lưu mật khẩu</label><label class="remember-choice"><input id="auth-remember" type="checkbox"> Duy trì đăng nhập</label><small>Lưu mật khẩu bằng trình quản lý mật khẩu của trình duyệt. Không chọn duy trì đăng nhập trên máy dùng chung. Không chọn: khóa sau 60 phút không hoạt động. Có chọn: khóa sau 24 giờ không hoạt động, thời hạn tối đa 7 ngày.</small>';
  $('#login-submit').before(options);
  $('#auth-password-manager').onchange=()=>{$('#auth-password').autocomplete=$('#auth-password-manager').checked?'current-password':'off';$('#login-form').autocomplete=$('#auth-password-manager').checked?'on':'off';};
  for(const id of ['new-user-password','password-new','password-confirm','reset-password']){const input=$('#'+id);if(input){input.minLength=12;input.maxLength=128;input.autocomplete='new-password';input.title='12–128 ký tự, có ký tự đặc biệt';}}
@@ -1642,4 +1642,43 @@ html.sc-auth-open #operation-status{display:none!important}
  };
  sync();if(typeof MutationObserver!=='undefined')new MutationObserver(sync).observe(gate,{attributes:true,attributeFilter:['hidden']});
 })();
-</script></body></html>
+</script><style id="sc-approved-ice-ivory-blush">/* Approved direction: first Băng · Ngà · Phấn concept, soft matte relief. */
+body.console-ui{--sc-ivory:#f5f3f0;--sc-ice:#c4d9eb;--sc-blush:#ecd2dd;--ink:#34475f;--muted:#627186;background:#e4eaf3!important;color:#34475f!important}
+body.console-ui .ambient-effects{background:linear-gradient(145deg,#e4eaf3,#eee7ed)!important}
+body.console-ui .ambient-effects::before{background:none!important}
+body.console-ui .ambient-effects::after{content:'';position:absolute;width:420px;height:520px;right:-220px;top:-160px;transform:rotate(32deg);border-radius:48% 52% 62% 38% / 35% 60% 40% 65%;background:#c4d9eb;box-shadow:inset 14px 14px 24px #ffffffb3,inset -12px -12px 24px #7789a33b,18px 22px 35px #7789a33b}
+body.console-ui .aurora-atmosphere,body.console-ui .ambient-effects i{display:none!important}
+body.console-ui .workspace-frame{background:#f5f3f0!important;border:1px solid #ffffff!important;box-shadow:0 18px 45px #7789a32e!important;border-radius:24px!important;overflow:clip}
+body.console-ui .workspace-frame>.workspace-rail{background:#c4d9eb!important;border-right:1px solid #ffffff!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body.console-ui .workspace-rail:before,body.console-ui .workspace-rail:after{display:none!important}
+body.console-ui .workspace-frame .console-top-tab{color:#34475f!important;border:0!important;font-weight:500}
+body.console-ui .workspace-frame .console-top-tab.active{background:#f5f3f0!important;color:#34475f!important;box-shadow:inset 1px 1px 3px #ffffff,4px 5px 10px #7789a33b!important;border-radius:12px!important}
+body.console-ui .workspace-frame .console-header{background:#f5f3f0!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-bottom:1px solid #dce2eb!important;box-shadow:none!important}
+body.console-ui .workspace-frame .console-secondary-tabs{padding-top:14px!important;gap:9px!important}
+body.console-ui .workspace-frame :is(.panel,.card,.profile-identity,.profile-indicator){background:#faf8f6!important;border:1px solid #ffffff!important;border-radius:18px!important;box-shadow:inset 1px 1px 2px #ffffff,5px 7px 16px #7789a324!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body.console-ui :is(.panel-heading h3,.intro h2,#page-title){color:#34475f!important}
+body.console-ui :is(.panel-heading p,.intro p,.method-note){color:#627186!important}
+body.console-ui :is(input:not([type=checkbox]):not([type=radio]),select,textarea){background:#f5f3f0!important;border:1px solid #e1e5eb!important;border-radius:11px!important;color:#34475f!important;box-shadow:inset 2px 2px 5px #7789a324,inset -2px -2px 5px #ffffff!important}
+body.console-ui :is(button,.secondary,.nav,.console-local-tab,.profile-tab){border-radius:11px!important}
+body.console-ui :is(.secondary,.nav,.console-local-tab,.profile-tab){background:#f5f3f0!important;color:#34475f!important;border:1px solid #ffffff!important;box-shadow:2px 3px 6px #7789a329,inset 1px 1px 2px #ffffff!important}
+body.console-ui :is(.nav.active,.console-local-tab.active,.profile-tab.active){background:#c4d9eb!important;border-color:#d8e5f0!important;color:#34475f!important}
+body.console-ui .primary{background:#466384!important;color:#ffffff!important;border:1px solid #466384!important;box-shadow:3px 5px 10px #7789a330!important}
+body.console-ui :is(.table-wrap,.term-status-panel){border-radius:12px!important;background:#faf8f6!important}
+body.console-ui th{background:#e8eff5!important;color:#34475f!important;border-color:#dce2eb!important}
+body.console-ui tbody td{background-color:#faf8f6;color:#34475f}
+body.console-ui tbody tr:nth-child(even)>td{background-color:#f3f3f4}
+body.console-ui tbody tr:hover>td{background-color:#e7eff7!important}
+body.console-ui .auth-gate:not([hidden]){background:linear-gradient(145deg,#e4eaf3,#eee7ed)!important;isolation:isolate}
+body.console-ui .auth-gate:before{display:block!important;content:'';position:absolute;right:-150px;top:-130px;width:400px;height:450px;transform:rotate(32deg);border-radius:48% 52% 62% 38% / 35% 60% 40% 65%;background:#c4d9eb;box-shadow:inset 14px 14px 24px #ffffffb3,inset -12px -12px 24px #7789a33b,18px 22px 35px #7789a33b;pointer-events:none;z-index:-1}
+body.console-ui .auth-gate:after{content:'';position:absolute;width:430px;height:340px;left:-220px;bottom:-140px;transform:rotate(-26deg);border-radius:48% 52% 62% 38%;background:#ecd2dd;box-shadow:inset 14px 14px 24px #ffffffb3,inset -12px -12px 24px #7789a33b,18px 22px 35px #7789a33b;pointer-events:none;z-index:-1}
+body.console-ui .auth-gate .auth-card{width:min(100%,380px)!important;max-width:380px!important;background:#faf8f6!important;border:1px solid #ffffff!important;border-radius:26px!important;padding:26px!important;box-shadow:inset 2px 2px 4px #ffffff,14px 18px 35px #7789a33b!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body.console-ui .auth-gate .auth-card:before{display:none!important}
+body.console-ui .auth-gate #login-form input:not([type=checkbox]){background:#f5f3f0!important;border:1px solid #e3e5e9!important;box-shadow:inset 3px 3px 6px #7789a32b,inset -3px -3px 6px #ffffff!important}
+body.console-ui .auth-gate #login-form label{color:#34475f!important}
+body.console-ui .auth-gate #login-submit{background:#466384!important;border-color:#466384!important;color:#ffffff!important}
+body.console-ui .auth-gate .sc-brand-symbol{background:#c4d9eb;border-radius:14px 14px 18px 18px;padding:5px;box-shadow:inset 2px 2px 5px #ffffff,3px 4px 8px #7789a33b}
+body.console-ui dialog{background:#faf8f6!important;border-radius:20px!important}
+@media(max-width:760px){body.console-ui .workspace-frame{border-radius:20px!important}body.console-ui .workspace-frame>.workspace-rail{border-radius:19px 19px 0 0!important;border-right:0!important}body.console-ui .workspace-frame .console-top-tab{background:#d5e3ef!important}body.console-ui .workspace-frame .console-top-tab.active{background:#f5f3f0!important}body.console-ui .auth-gate:before{width:280px;height:320px;right:-180px;top:-130px}body.console-ui .auth-gate:after{width:290px;height:240px;left:-190px;bottom:-110px}}
+@media(max-height:620px){body.console-ui .auth-gate .auth-card{padding:18px 22px!important}}
+@media print{body.console-ui .workspace-frame :is(.panel,.card){box-shadow:none!important}body.console-ui .ambient-effects{display:none!important}}
+</style></body></html>
