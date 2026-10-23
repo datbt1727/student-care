@@ -18,12 +18,13 @@ const health={mirrorStatus:'Neon',backupAt:'2026-10-23',backupError:'',mirrorErr
 const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);requests.push({action,p,headers:options.headers});let data;
 switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:2,warning:'',info:health};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
-const ctx={document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
+const observers=[];
+const ctx={MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
 ctx.window=ctx;vm.createContext(ctx);for(const [i,script]of scripts.entries()){try{vm.runInContext(script,ctx)}catch(e){console.error('SCRIPT',i);throw e;}}
 const q=s=>doc.querySelector(s);
 (async()=>{
 await new Promise(r=>setTimeout(r,25));
-assert(q('#auth-totp'));assert(q('#auth-remember'));assert(!q('.demo-entry'));assert(!q('#provision-box'));
+assert(doc.documentElement.classList.contains('sc-auth-open'));assert(q('.workspace-frame').inert);assert(q('#auth-gate').parentElement===doc.body);q('#auth-gate').hidden=true;observers.forEach(fn=>fn());assert(!doc.documentElement.classList.contains('sc-auth-open'));assert(!q('.workspace-frame').inert);q('#auth-gate').hidden=false;observers.forEach(fn=>fn());assert(q('#auth-message').getAttribute('aria-live')==='polite');assert(q('#auth-totp'));assert(q('#auth-remember'));assert(!q('.demo-entry'));assert(!q('#provision-box'));
 q('#auth-username').value='admin.test';q('#auth-password').value='Password#1234';q('#auth-totp').value='123456';q('#auth-remember').checked=true;
 await q('#login-form').requestSubmit();
 assert(q('#auth-gate').hidden,q('#auth-message').textContent);
@@ -31,5 +32,29 @@ const login=requests.find(r=>r.action==='login');assert.equal(login.p.password,'
 q('#registry-paste').value='MSSV\tHọ tên\tEmail\tMentor\nTEST001\tSinh viên thử\ttest@example.test\tCB01';await q('#registry-check').click();assert(q('#import-review').open);await q('#review-confirm').click();
 assert(saved.registry.students.TEST001);assert(requests.some(r=>r.action==='save'&&r.headers['X-SC-CSRF']==='test-csrf'));
 assert.equal(storage.size,0);assert.equal(q('#auth-password').value,'');
+
+assert.equal(q('.sc-login-credit').textContent,'Powered by DatBT13');assert.equal(q('.sc-global-credit').textContent,'Powered by DatBT13');assert.equal(q('#operation-status').parentElement,doc.body);
+const importBar=q('#imports .console-local-tabs');
+assert.deepEqual(importBar.children.map(b=>b.textContent),['Hồ sơ tổng','Danh sách học kỳ','Danh mục môn','Điểm danh','Lịch sử nhập']);
+assert(q('#import-pane-master #registry-pane-import'));assert(q('#import-pane-history #import-batch-history'));assert(!q('.import-shortcuts'));
+importBar.children[3].click();assert(!q('#import-pane-attendance').hidden);assert(q('#import-pane-master').hidden);
+importBar.children[0].click();assert(!q('#import-pane-master').hidden);assert(!q('#registry-pane-import').hidden);
+let nativeCalls=0,writes=0,closes=0;
+ctx.showSaveFilePicker=async options=>{nativeCalls++;assert.equal(options.suggestedName,'test.xlsx');return {createWritable:async()=>({write:async blob=>{assert.equal(await blob.text(),'bytes');writes++},close:async()=>{closes++}})}};
+let pending=ctx.StudentFileSave.save('test.xlsx','bytes','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+assert.equal(nativeCalls,0);assert.equal(downloads.length,0);
+await q('.sc-save-dialog [data-save="picker"]').click();await pending;
+assert.equal(nativeCalls,1);assert.equal(writes,1);assert.equal(closes,1);assert(!q('.sc-save-dialog'));
+ctx.showSaveFilePicker=async()=>{const e=Error('cancel');e.name='AbortError';throw e};
+pending=ctx.StudentFileSave.save('cancel.xlsx','bytes','application/octet-stream');
+await q('.sc-save-dialog [data-save="picker"]').click();assert(q('.sc-save-dialog').open);assert.equal(downloads.length,0);
+const rejection=assert.rejects(pending,{name:'AbortError'});q('.sc-save-dialog [data-save="cancel"]').click();await rejection;
+ctx.showSaveFilePicker=undefined;ctx.File=class extends Blob{constructor(parts,name,opts){super(parts,opts);this.name=name}};
+let shares=0;ctx.navigator={canShare:()=>true,share:async payload=>{assert.equal(payload.files[0].name,'share.xlsx');shares++}};
+pending=ctx.StudentFileSave.save('share.xlsx','bytes','application/octet-stream');assert.equal(shares,0);
+await q('.sc-save-dialog [data-save="share"]').click();await pending;assert.equal(shares,1);assert.equal(downloads.length,0);
+let aborted=false;await assert.rejects(ctx.StudentFileSave.writeHandle({createWritable:async()=>({write:async()=>{throw Error('disk full')},abort:async()=>{aborted=true}})},new Blob(['x'])),/disk full/);assert(aborted);
+const palette=vm.runInContext('qaStyleXml()',ctx);assert(palette.includes('FFC4D9EB'));assert(palette.includes('FFECD2DD'));assert(palette.includes('FF34475F'));
+console.log('PASS save dialog/native picker/cancel/share/write failure; ordered import tabs; approved export palette.');
 console.log('PASS secure client login/remember/TOTP/import review/server-save/no persistent storage (DOM fixture, not browser)');
 })().catch(e=>{console.error(e);process.exitCode=1});
