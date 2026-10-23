@@ -10,7 +10,7 @@ function select(root,s){if(s.includes(','))return [...new Set(s.split(',').flatM
 
 N.prototype.before=function(...nodes){for(const n of nodes)this.parentElement.insertBefore(n,this)};
 const html=fs.readFileSync(root+'/web/source.html','utf8'),scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
-const doc=new N('document');doc.append(...parse(html.replace(/<script>[\s\S]*?<\/script>/g,'').replace(/<style>[\s\S]*?<\/style>/g,'')));doc.body=doc.querySelector('body');doc.createElement=t=>new N(t);
+const doc=new N('document');doc.append(...parse(html.replace(/<script>[\s\S]*?<\/script>/g,'').replace(/<style>[\s\S]*?<\/style>/g,'')));doc.documentElement=doc.querySelector('html');doc.body=doc.querySelector('body');doc.createElement=t=>new N(t);
 const downloads=[],storage=new Map(),requests=[];
 let saved={version:2,active:'2026-FALL',terms:{'2026-FALL':{termId:'2026-FALL',termLabel:'FALL 2026',asof:'2026-10-23',limit:25,early:20,students:[],records:[],courseCatalog:[],notes:{},dailyFollow:{},log:[],importFiles:[]}},registry:{students:{},events:[],seen:{}},studentServices:{certificates:[],insurance:[],audit:[]}};
 const user={username:'admin.test',displayName:'Admin',role:'admin',active:true,mustChange:false};
