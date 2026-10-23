@@ -1,0 +1,444 @@
+# Student Care — hướng dẫn theo từng màn hình
+
+Hướng dẫn dành cho máy Mac, đi từ đăng ký tài khoản đến đăng nhập Student Care. Bắt đầu bằng môi trường thử và dữ liệu giả. Tên nút có thể khác nhẹ theo ngôn ngữ hoặc thay đổi giao diện nhà cung cấp.
+
+## A. Thống nhất tên trước khi làm
+
+| Nội dung | Tên dùng trong hướng dẫn | Có thể đổi không? |
+|---|---|---|
+| Thư mục mã trên Mac | Student-Care-Secure | Có, nhưng phải sửa đường dẫn Terminal tương ứng |
+| Repository GitHub | student-care | Có |
+| Neon Project | student-care-test | Có; đây là môi trường thử |
+| Database trong Neon | neondb | Giữ tên mặc định cho dễ, không cần đổi thành tên project |
+| Branch Neon | Branch mặc định vừa được tạo | Chọn cùng một branch trong mọi bước; chưa cần tạo branch khác |
+| Role chạy ứng dụng | studentcare_app | Giữ nguyên: script và grants đang dùng tên này |
+| Vercel Project | student-care-tandat | Có; nếu trùng tên, thêm tên đơn vị hoặc hậu tố |
+| Tài khoản đăng nhập ứng dụng đầu tiên | quantri.tandat | Có: chữ thường, số, dấu chấm/gạch; 3–60 ký tự |
+| Bucket AWS sao lưu | student-care-backup-tandat-2026-abc123 | Phải đổi hậu tố abc123 nếu tên đã có người dùng |
+| IAM user cho backup | student-care-backup-writer | Có |
+| IAM policy cho backup | StudentCareBackupPutGet | Có |
+| Tên hiển thị website | Student Care | Đã đặt sẵn, không cần đổi file |
+
+Tên GitHub/Vercel/Neon là tên quản lý dịch vụ. Chúng không phải tài khoản đăng nhập Student Care. Bạn có thể dùng cùng một tài khoản GitHub để đăng nhập GitHub, Vercel và Neon; tài khoản Student Care được tạo ở bước G.
+
+## B. Tải và mở gói trên Mac
+
+1. Tải file Student-Care-Vercel-Neon-2026-10-23.zip.
+2. Trong Finder mở Downloads/Tải về.
+3. Nhấp đúp file ZIP để giải nén.
+4. Tìm thư mục có các mục package.json, api, lib, scripts, web. Thư mục đó là gốc ứng dụng, tên trong gói là Student-Care-Secure.
+5. Không dùng các file Greenwich-Demo-*.html để triển khai bản này.
+6. Không đổi tên từng file mã nguồn.
+
+Giữ cấu trúc:
+
+~~~
+Student-Care-Secure/
+  package.json
+  package-lock.json
+  vercel.json
+  schema.sql
+  .env.example
+  .gitignore
+  .github/
+  api/
+  lib/
+  scripts/
+  tests/
+  web/
+  dist/
+~~~
+
+Các file có dấu chấm ở đầu bị Finder ẩn. Nhấn Command + Shift + dấu chấm để hiện.
+
+**File bạn sẽ tạo thêm:** .env — đúng tên này, không phải env, env.txt hoặc .env.txt. File này chỉ ở máy của bạn, không tải lên GitHub.
+
+## C. Cài Node.js và mở Terminal
+
+1. Mở https://nodejs.org/en/download.
+2. Chọn nhánh Node.js 24 LTS, bản vá mới nhất đang được cung cấp.
+3. Chọn macOS Installer, tải file .pkg rồi mở và cài theo trình hướng dẫn.
+4. Trên Mac bấm Command + Space, gõ Terminal, nhấn Enter.
+5. Gõ:
+
+~~~sh
+node -v
+npm -v
+~~~
+
+Kết quả đầu cần bắt đầu bằng v24. Nếu báo command not found, đóng Terminal rồi mở lại sau khi cài Node.
+
+6. Vào thư mục mã. Nếu đúng ở Downloads:
+
+~~~sh
+cd "$HOME/Downloads/Student-Care-Secure"
+~~~
+
+Nếu báo không tìm thấy: gõ cd và một dấu cách, kéo thư mục chứa package.json từ Finder vào Terminal, nhấn Enter.
+
+7. Cài thư viện:
+
+~~~sh
+npm ci --ignore-scripts
+~~~
+
+Chờ về lại dấu nhắc Terminal, không đóng cửa sổ giữa chừng.
+
+8. Tạo .env và bốn khóa riêng:
+
+~~~sh
+node scripts/prepare-env.mjs
+~~~
+
+Lệnh tạo .env từ mẫu nếu chưa có, tự điền DATA_KEY/BACKUP_KEY/RATE_KEY/CRON_SECRET. Nếu chạy lại, giữ nguyên khóa đã có. Không tự tạo lại DATA_KEY sau khi có dữ liệu.
+
+9. Mở .env để chỉnh bằng trình sửa văn bản. Trên Mac có thể dùng:
+
+~~~sh
+open -a TextEdit .env
+~~~
+
+Giữ dạng văn bản thuần, không lưu thành .rtf. Chỉ thay giá trị sau dấu =, không thêm dấu ngoặc kép thông minh. Bốn khóa tự tạo được giữ nguyên. Lưu file bằng Command + S.
+
+## D. Tạo cơ sở dữ liệu Neon
+
+### D1. Đăng nhập và tạo project
+
+1. Mở https://console.neon.tech.
+2. Nếu chưa có tài khoản: chọn Sign up, có thể chọn Continue with GitHub.
+3. Nếu đã có: Sign in bằng đúng tài khoản đã đăng ký.
+4. Chọn New Project/Create project.
+5. Điền Project name: student-care-test.
+6. Chọn vùng gần nơi chạy ứng dụng; ưu tiên Singapore nếu tài khoản/vùng cung cấp, nếu không chọn vùng gần nhất phù hợp.
+7. Giữ phiên bản PostgreSQL mặc định ổn định được Neon cung cấp.
+8. Tạo project.
+9. Vào project vừa tạo. Ghi nhớ branch đang chọn; dùng branch đó xuyên suốt.
+10. Nếu database mặc định là neondb thì giữ nguyên. Không cần tạo thêm database tên student-care-test.
+
+### D2. Lấy kết nối chủ sở hữu
+
+1. Trong project chọn Connect.
+2. Kiểm tra Branch là branch ở D1.
+3. Database: neondb.
+4. Role: role chủ sở hữu do Neon tạo, thường tên tương ứng database.
+5. Tắt Connection pooling cho kết nối dùng migration này.
+6. Sao chép Connection string bắt đầu bằng postgresql://.
+7. Trong .env thay toàn bộ giá trị MIGRATION_DATABASE_URL bằng chuỗi vừa sao chép.
+8. Đặt sslmode=verify-full. Nếu chuỗi đang có sslmode=require, thay đúng phần đó; giữ các tham số khác nếu có.
+9. Lưu .env.
+
+Không gửi chuỗi này qua chat hoặc chụp ảnh công khai: trong chuỗi có mật khẩu.
+
+### D3. Tạo bảng và role ứng dụng
+
+Quay lại Terminal, vẫn ở thư mục package.json, chạy lần lượt:
+
+~~~sh
+node --env-file=.env scripts/migrate.mjs
+node --env-file=.env scripts/runtime-role.mjs
+~~~
+
+- Lệnh đầu phải báo đã tạo cấu trúc dữ liệu.
+- Lệnh sau tạo studentcare_app và hiển thị mật khẩu một lần.
+- Lưu mật khẩu vào trình quản lý mật khẩu.
+
+**Không dùng nút Add role của Neon để tạo studentcare_app.** Role tạo theo Console/CLI/API có thể được cấp neon_superuser; script ở đây tạo bằng SQL và chỉ cấp quyền cần thiết. Nếu báo role đã tồn tại, dừng kiểm tra role cũ; không xóa hoặc đặt lại tùy tiện.
+
+### D4. Lấy kết nối chạy ứng dụng
+
+1. Quay lại Neon → project → Connect.
+2. Chọn cùng Branch và Database.
+3. Bật Connection pooling.
+4. Nếu danh sách Role có studentcare_app, chọn role này; dùng mật khẩu ở D3 nếu được hỏi.
+5. Nếu role tạo bằng SQL không hiện trong ô chọn, lấy host pooled từ Connect và ghép kết nối ở dạng:
+
+~~~
+postgresql://studentcare_app:MAT_KHAU_O_D3@HOST_POOLED_CUA_BAN/neondb?sslmode=verify-full
+~~~
+
+Thay đúng MAT_KHAU_O_D3 và HOST_POOLED_CUA_BAN. Host pooled thường có -pooler; dùng đúng host Neon đưa ra, không tự đoán.
+
+Mật khẩu do script tạo chỉ dùng ký tự an toàn cho chuỗi kết nối. Nếu sau này tự đặt mật khẩu có @, :, /, # hoặc %, phải URL-encode phần mật khẩu.
+
+6. Dán chuỗi vào DATABASE_URL trong .env.
+7. Lưu, rồi chạy:
+
+~~~sh
+node --env-file=.env scripts/check-runtime.mjs
+~~~
+
+Phải thấy PASS. Nếu báo quyền thừa, chưa triển khai lên Vercel.
+
+## E. Tạo nơi sao lưu AWS S3
+
+Bạn có thể dùng S3-compatible khác, nhưng phần này chọn AWS S3 để có bộ tên và các bước cụ thể. AWS có thể yêu cầu thông tin thanh toán; kiểm tra giá và đặt cảnh báo chi phí.
+
+### E1. Tạo bucket
+
+1. Mở https://console.aws.amazon.com.
+2. Đăng nhập tài khoản AWS của đơn vị; nếu chưa có, chọn Create a new AWS account và hoàn thành đăng ký.
+3. Bật MFA cho tài khoản quản trị AWS, dùng danh tính quản trị được ủy quyền cho cấu hình.
+4. Tại ô tìm kiếm dịch vụ gõ S3 → mở S3.
+5. Chọn Create bucket.
+6. Region: Asia Pacific (Singapore), mã ap-southeast-1.
+7. Bucket name: student-care-backup-tandat-2026-abc123. Nếu trùng, thay abc123 bằng hậu tố khác.
+8. Giữ Object Ownership: Bucket owner enforced/ACLs disabled.
+9. Giữ toàn bộ Block Public Access được bật.
+10. Bucket Versioning: Enable.
+11. Giữ mã hóa phía S3 mặc định SSE-S3; ứng dụng còn mã hóa riêng bằng BACKUP_KEY trước khi tải lên.
+12. Create bucket.
+13. Không bật Static website hosting, không tạo public URL cho backup.
+
+### E2. Tạo quyền chỉ đọc/ghi đối tượng backup
+
+1. Trong AWS tìm dịch vụ IAM.
+2. Vào Policies → Create policy → JSON.
+3. Thay nội dung bằng mẫu sau, sửa tên bucket trong Resource thành tên thực tế ở E1:
+
+~~~json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::student-care-backup-tandat-2026-abc123/daily/*"
+    }
+  ]
+}
+~~~
+
+4. Next → Policy name: StudentCareBackupPutGet → Create policy.
+5. IAM → Users → Create user.
+6. User name: student-care-backup-writer.
+7. Không cấp quyền đăng nhập AWS Management Console cho user kỹ thuật này.
+8. Chọn Attach policies directly, tìm StudentCareBackupPutGet, tích chọn.
+9. Tạo user. Không gắn thêm AdministratorAccess/AmazonS3FullAccess.
+10. Mở user vừa tạo → Security credentials → Create access key.
+11. Chọn mục đích Application running outside AWS nếu màn hình hỏi.
+12. Tạo và lưu Access key ID cùng Secret access key vào trình quản lý bí mật. Secret thường chỉ hiện lúc tạo.
+
+### E3. Điền .env
+
+~~~
+S3_ENDPOINT=https://s3.ap-southeast-1.amazonaws.com
+S3_REGION=ap-southeast-1
+S3_BUCKET=TEN_BUCKET_THUC_TE
+S3_ACCESS_KEY_ID=ACCESS_KEY_ID_VUA_TAO
+S3_SECRET_ACCESS_KEY=SECRET_ACCESS_KEY_VUA_TAO
+~~~
+
+Giữ BACKUP_KEY đã sinh ở bước C. Không dùng khóa IAM của tài khoản root.
+
+Theo chính sách đơn vị, cấu hình retention/Object Lock bằng tài khoản quản trị kho và xem thêm VAN-HANH.md. Policy trên không cho ứng dụng xóa backup hoặc thay chính sách bucket.
+
+## F. Tạo GitHub repository và đưa file lên
+
+### F1. Đăng nhập GitHub
+
+1. Mở https://github.com/login.
+2. Đăng nhập; chưa có tài khoản thì dùng Sign up.
+3. Bật 2FA/passkey trong cài đặt tài khoản.
+4. Mở https://github.com/new.
+5. Repository name: student-care.
+6. Visibility: Private.
+7. Không thêm README/.gitignore mẫu vì gói đã có.
+8. Chọn Create repository.
+
+### F2. Upload đúng tầng thư mục
+
+1. Trên repo mới chọn uploading an existing file; với repo đã có file chọn Add file → Upload files.
+2. Mở Finder → thư mục Student-Care-Secure.
+3. Nhấn Command + Shift + dấu chấm để thấy các file ẩn.
+4. Kéo các file/thư mục sau vào khung upload:
+
+~~~
+.github/
+api/
+lib/
+scripts/
+tests/
+web/
+.env.example
+.gitignore
+package.json
+package-lock.json
+vercel.json
+schema.sql
+README.md
+~~~
+
+Các file hướng dẫn .md và KIEM-THU.json có thể tải lên cùng. Không cần tải dist vì Vercel tự build.
+
+**Không upload:** .env, node_modules, file ZIP, file Excel thật, backup .enc, thông tin mật khẩu/khóa.
+
+Lưu ý: khi upload bằng web, tự bỏ .env khỏi danh sách; .gitignore không phải công cụ bảo vệ cho thao tác kéo file thủ công.
+
+5. Commit message: Khoi tao Student Care.
+6. Chọn Commit changes.
+7. Kiểm tra trang gốc repo nhìn thấy trực tiếp package.json, api, scripts. Nếu chỉ thấy một thư mục Student-Care-Secure bao ngoài, bạn đã upload thừa tầng. Có thể cấu hình Root Directory tương ứng ở Vercel, nhưng hướng dẫn này dùng repo không có tầng bao ngoài.
+8. Kiểm tra tab Actions: workflow phải chạy và đạt. Nếu workflow chưa hiện, kiểm tra đã upload .github/workflows/security.yml.
+
+## G. Khởi tạo dữ liệu trống và tài khoản Student Care
+
+Ở Terminal trên Mac:
+
+~~~sh
+node --env-file=.env scripts/init.mjs
+node --env-file=.env scripts/admin.mjs quantri.tandat
+~~~
+
+1. Lệnh đầu tạo workspace trống, không chèn dữ liệu mẫu và không ghi đè workspace đã có.
+2. Lệnh sau tạo tài khoản quantri.tandat, hiện mật khẩu tạm và khóa TOTP một lần.
+3. Lưu riêng hai thông tin đó, không upload lên GitHub.
+4. Trong ứng dụng xác thực TOTP bạn đang dùng, chọn thêm tài khoản bằng setup key/khóa thủ công.
+5. Tên tài khoản trong ứng dụng xác thực: Student Care - quantri.tandat.
+6. Secret/setup key: khóa TOTP vừa được in ra.
+7. Loại: Time based. Ứng dụng sẽ hiện mã 6 chữ số đổi theo thời gian.
+
+Tài khoản quantri.tandat chỉ đăng nhập vào website Student Care, không dùng để đăng nhập Vercel/Neon/GitHub.
+
+## H. Tạo project Vercel
+
+### H1. Đăng nhập và import
+
+1. Mở https://vercel.com/login.
+2. Chọn Continue with GitHub, dùng tài khoản có repo student-care.
+3. Vào https://vercel.com/new.
+4. Tại Import Git Repository, tìm repo student-care.
+5. Nếu không thấy, chọn cấu hình quyền GitHub App và cho Vercel truy cập riêng repo này.
+6. Chọn Import.
+7. Project Name: student-care-tandat; nếu tên không khả dụng, thêm tên đơn vị/hậu tố.
+8. Framework Preset: Other.
+9. Root Directory: để gốc repo, không chọn api, web hoặc dist.
+10. Build Command: npm run build.
+11. Output Directory: dist.
+12. Install Command: npm ci --ignore-scripts.
+13. Node.js Version: 24.x. Nếu chưa có ô này ở bước import, kiểm tra trong Project Settings sau khi tạo.
+
+### H2. Điền Environment Variables
+
+Trong phần Environment Variables của bước import, hoặc Project → Settings → Environment Variables, thêm từng dòng theo bảng. Tên biến phải giữ nguyên chữ hoa/dấu gạch dưới.
+
+| Name | Value lấy ở đâu? |
+|---|---|
+| DATABASE_URL | Giá trị DATABASE_URL trong .env, dùng role studentcare_app |
+| APP_ORIGIN | https://TEN_PROJECT_VERCEL_THUC_TE.vercel.app, không có / cuối |
+| DATA_KEY | Giá trị DATA_KEY do bước C tạo, giữ nguyên |
+| BACKUP_KEY | Giá trị BACKUP_KEY do bước C tạo |
+| RATE_KEY | Giá trị RATE_KEY do bước C tạo |
+| CRON_SECRET | Giá trị CRON_SECRET do bước C tạo |
+| S3_ENDPOINT | https://s3.ap-southeast-1.amazonaws.com |
+| S3_REGION | ap-southeast-1 |
+| S3_BUCKET | Tên bucket thực tế ở E1 |
+| S3_ACCESS_KEY_ID | Access key ID ở E2 |
+| S3_SECRET_ACCESS_KEY | Secret access key ở E2 |
+| MONITOR_PING_URL | Có khi cấu hình giám sát độc lập ở bước J; có thể bỏ trống lúc thử |
+
+- Chỉ chọn Production cho bộ khóa/DB này.
+- Không thêm MIGRATION_DATABASE_URL lên Vercel.
+- Không thêm tiền tố NEXT_PUBLIC_ hoặc VITE_.
+- Khi sao chép khóa, chỉ lấy phần sau dấu =, không lấy tên biến.
+- Không dùng DATA_KEY khác với .env đã dùng để init ở bước G.
+
+### H3. Deploy và xác nhận địa chỉ
+
+1. Chọn Deploy.
+2. Chờ trạng thái Ready.
+3. Mở Settings → Domains, lấy địa chỉ production được Vercel gán. Không dùng URL preview theo từng commit làm APP_ORIGIN.
+4. Địa chỉ thực tế có thể khác tên bạn đoán nếu có trùng tên hoặc tên team.
+5. Vào Settings → Environment Variables, sửa APP_ORIGIN đúng địa chỉ HTTPS thực tế.
+6. Vào Deployments → bản mới nhất → menu dấu ba chấm → Redeploy.
+7. Sau thay biến luôn redeploy; không chỉ bấm Save rồi dùng bản cũ.
+
+Bảo vệ preview bằng Deployment Protection. Không dùng bộ khóa production cho nhánh preview. Xem HUONG-DAN-TRIEN-KHAI.md để cấu hình firewall và kiểm tra tải.
+
+## I. Đăng nhập Student Care lần đầu
+
+1. Mở địa chỉ production ở H3.
+2. Tên đăng nhập: quantri.tandat.
+3. Mật khẩu: mật khẩu tạm ở G.
+4. Mã xác thực hai bước: mã 6 số hiện tại trong ứng dụng TOTP.
+5. “Cho phép trình duyệt gợi ý lưu mật khẩu”: tùy bạn; trình duyệt quyết định có lưu hay không.
+6. “Duy trì đăng nhập trên thiết bị này”: chỉ tích trên máy riêng, không dùng máy công cộng.
+7. Chọn Đăng nhập.
+8. Hệ thống yêu cầu đổi mật khẩu:
+   - Mật khẩu hiện tại: mật khẩu tạm.
+   - Mật khẩu mới: 12–128 ký tự, có ký tự đặc biệt và khác mật khẩu tạm.
+   - Xác nhận: nhập lại mật khẩu mới.
+9. Lưu, rồi đăng nhập lại bằng mật khẩu mới.
+10. Nếu báo mã TOTP đã dùng, chờ mã 6 số tiếp theo.
+11. Khi trình duyệt hỏi lưu mật khẩu, lưu mật khẩu mới, không lưu mật khẩu tạm.
+
+Nếu đúng mật khẩu nhưng xác thực liên tục thất bại, kiểm tra thời gian tự động trên điện thoại/Mac.
+
+## J. Kiểm tra backup trước dữ liệu thật
+
+1. Trong .env trên Mac, APP_ORIGIN có thể cập nhật cùng địa chỉ thật để ghi nhớ cấu hình; lệnh backup không dùng biến này.
+2. Chạy:
+
+~~~sh
+node --env-file=.env scripts/backup.mjs
+~~~
+
+3. Phải có thông báo sao lưu và kiểm tra giải mã thành công.
+4. Vào AWS → S3 → bucket đã tạo → Objects → daily/ → thư mục ngày → kiểm tra có file .json.enc.
+5. Không đổi đuôi file này thành .json, không mở rồi lưu lại.
+6. Vercel → project → Cron Jobs/Settings liên quan cron: kiểm tra tác vụ /api/backup. Lịch khoảng 00:15 giờ Việt Nam, phụ thuộc độ chính xác/gói dịch vụ.
+7. Để có một cách thiết lập cụ thể, mở https://healthchecks.io → Sign Up/Log In bằng email quản trị được đơn vị cho phép.
+8. Vào dashboard, chọn Add Check. Name: student-care-daily-backup.
+9. Chọn lịch Simple, Period: 1 day/24 hours; Grace Time: 6 hours. Tổng chờ khoảng 30 giờ từ ping thành công gần nhất.
+10. Vào Integrations/Notifications, thêm email quản trị nhận cảnh báo và xác nhận email nếu được yêu cầu; gắn kênh đó với check. Bạn tự quyết định người nhận.
+11. Sao chép Ping URL của check, điền MONITOR_PING_URL vào Vercel Production rồi redeploy. Giữ Ping URL riêng tư để người ngoài không giả tín hiệu thành công.
+12. Điền cùng URL vào .env trên Mac, chạy backup khi đã qua ngày mới hoặc theo lịch kế tiếp; kiểm tra trạng thái check. Backup đã thành công trong cùng ngày sẽ được bỏ qua để tránh chạy trùng.
+13. Diễn tập khôi phục theo VAN-HANH.md vào Neon project riêng. Không thử restore lên database đang sử dụng.
+
+Nguồn giám sát: https://healthchecks.io/docs/configuring_checks/ và https://healthchecks.io/docs/configuring_notifications/. Nếu đơn vị đã có hệ thống heartbeat tương đương, có thể dùng hệ thống đó thay vì tạo tài khoản mới.
+
+Nếu chưa có heartbeat/backup thành công, chưa coi phần sao lưu vận hành là hoàn tất.
+
+## K. Những tên file bắt buộc giữ nguyên
+
+| File/thư mục | Công dụng | Cách xử lý |
+|---|---|---|
+| package.json, package-lock.json | Khai báo và khóa thư viện | Không đổi tên |
+| vercel.json | Build, header, cron | Không đổi tên |
+| schema.sql | Cấu trúc DB | Không đổi tên |
+| api/, lib/, scripts/, web/, tests/ | Mã ứng dụng | Giữ cấu trúc/tên |
+| .env.example | Mẫu cấu hình không có bí mật | Được đưa lên GitHub |
+| .env | Cấu hình có bí mật trên Mac | Không đưa lên GitHub |
+| .gitignore | Loại file riêng khỏi Git khi dùng Git | Không đổi tên |
+| .github/workflows/security.yml | Kiểm tra tự động GitHub | Giữ đúng đường dẫn |
+| dist/ | Đầu ra build | Không sửa tay, không chọn làm thư mục mã gốc |
+
+File Excel nhập liệu được giữ tên riêng của bạn. Các sheet của file hàng kỳ được nhận diện theo cột, không bắt buộc trùng tên mẫu. Không đặt file Excel thật trong repository.
+
+## L. Gặp lỗi thì xem ở đâu?
+
+| Hiện tượng | Nơi xem/cách kiểm tra |
+|---|---|
+| Terminal không thấy package.json | Đang đứng sai thư mục; cd lại thư mục gốc |
+| node/npm command not found | Cài Node 24 rồi mở lại Terminal |
+| Vercel Build Failed | Deployments → bản lỗi → Build Logs; kiểm tra Root Directory và package.json |
+| Website báo yêu cầu không hợp lệ | Kiểm tra APP_ORIGIN đúng domain production, không có / cuối, rồi redeploy |
+| Server báo chưa xử lý được | Vercel → Logs/Functions; kiểm tra DATABASE_URL và khóa, không đăng log chứa bí mật công khai |
+| Không giải mã được sau deploy | DATA_KEY trên Vercel phải đúng khóa trong .env lúc init; không sinh khóa mới để sửa |
+| Không có tài khoản admin | Chạy bước G trên đúng DB; tài khoản Vercel/GitHub không phải tài khoản ứng dụng |
+| Mã TOTP không hợp lệ/đã dùng | Đúng secret, đồng bộ giờ; chờ mã tiếp theo |
+| Backup lỗi AccessDenied | Kiểm tra IAM policy, đúng bucket và prefix daily/ |
+| Backup lỗi region/endpoint | Dùng đúng ap-southeast-1 và endpoint tương ứng nếu tạo ở Singapore |
+| Role đã tồn tại | Không chạy lại tạo role; kiểm tra role/grants và giữ credential đã cấp |
+| Nhân viên không lưu được | Trong gói hiện tại staff là quyền chỉ đọc toàn workspace |
+
+**Giới hạn phiên bản hiện tại:** tài liệu nghiệp vụ khoảng ≤3 MB, staff chỉ đọc toàn workspace, chưa phân quyền từng Mentor và chưa kiểm thử tải/hạ tầng production thực tế. Thực hiện thử nghiệm giả, kiểm tra backup/khôi phục và nghiệm thu trước khi dùng dữ liệu sinh viên thật.
+
+## Nguồn chính thức đối chiếu
+
+- Node.js: https://nodejs.org/en/download
+- GitHub upload: https://docs.github.com/en/repositories/working-with-files/managing-files/adding-a-file-to-a-repository
+- Neon kết nối: https://neon.com/docs/get-started/connect-neon
+- Neon role: https://neon.com/docs/manage/roles
+- Vercel Git: https://vercel.com/docs/git
+- Vercel build: https://vercel.com/docs/builds/configure-a-build
+- Vercel biến môi trường: https://vercel.com/docs/environment-variables
+- AWS tạo bucket: https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html

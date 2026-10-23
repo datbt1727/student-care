@@ -1,0 +1,3 @@
+import {db} from '../lib/db.mjs';import {encrypt} from '../lib/security.mjs';
+const id='2026-FALL',archive={version:2,active:id,terms:{[id]:{version:1,termId:id,termLabel:'FALL 2026',asof:new Date().toISOString().slice(0,10),limit:25,early:20,students:[],records:[],courseCatalog:[],notes:{},dailyFollow:{},followAudit:[],trainingAudit:[],log:[],importFiles:[]}},registry:{students:{},events:[],seen:{}},studentServices:{certificates:[],insurance:[],audit:[]}};
+await db().query('INSERT INTO sc_archive(id,cipher) VALUES(1,$1) ON CONFLICT(id) DO NOTHING',[encrypt(archive,'archive')]);await db().end();console.log('Đã khởi tạo; không ghi đè dữ liệu cũ.');

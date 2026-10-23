@@ -1,0 +1,5 @@
+{
+  "name": "Student Care - Browser Setup",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
+  "remoteUser": "node"
+}

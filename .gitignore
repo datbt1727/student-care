@@ -1,0 +1,11 @@
+node_modules/
+.vercel/
+.env
+.env.*
+!.env.example
+dist/
+*.enc
+*.xlsx
+*.csv
+*.dump
+coverage/

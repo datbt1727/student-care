@@ -1,0 +1,10 @@
+import {db} from '../lib/db.mjs';
+import {hashPassword,totpSecret,encrypt,opaque} from '../lib/security.mjs';
+const username=process.argv[2];
+if(!/^[a-z0-9._-]{3,60}$/.test(username||''))throw Error('Cách dùng: npm run admin:create -- ten.quantri');
+const password=opaque()+'!',secret=totpSecret();
+await db().query('INSERT INTO sc_users(username,display_name,role,password_hash,totp_cipher) VALUES($1,$2,$3,$4,$5)',[username,'Quản trị viên','admin',await hashPassword(password),encrypt(secret,'totp:'+username)]);
+console.log('Chỉ hiển thị một lần. Chuyển qua kênh riêng an toàn, không chụp/log vào GitHub.');
+console.log('Tài khoản:',username,'\nMật khẩu tạm:',password,'\nKhóa ứng dụng xác thực TOTP:',secret);
+console.log('otpauth://totp/StudentCare:'+encodeURIComponent(username)+'?secret='+secret+'&issuer=StudentCare');
+await db().end();
