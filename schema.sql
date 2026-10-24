@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS sc_users (
  password_hash text NOT NULL,totp_cipher text NOT NULL,last_totp_step bigint NOT NULL DEFAULT -1,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE sc_users ADD COLUMN IF NOT EXISTS permissions jsonb NOT NULL DEFAULT '{}'::jsonb;
 CREATE TABLE IF NOT EXISTS sc_sessions (
  token_hash text PRIMARY KEY,username text NOT NULL REFERENCES sc_users(username) ON DELETE CASCADE,
  csrf text NOT NULL,expires_at timestamptz NOT NULL,last_seen timestamptz NOT NULL DEFAULT now(),

@@ -61,6 +61,24 @@ const importBadge=q('button[data-console-page="imports"] .tab-badge');assert(imp
 q('#import-error-note button').click();assert(importBadge.hidden);assert(q('#import-error-note').hidden);
 vm.runInContext("Operation.fail('Sự cố chưa xác định.');",ctx);assert(importBadge.hidden,'generic client errors do not create import notifications');
 vm.runInContext('Operation.clear()',ctx);
+// Internal footer and dismissal of the account menu are independent of data edits.
+assert.equal(q('.sc-global-credit').textContent,'Powered by DatBT13');
+const accountMenu=q('.account-menu');assert(accountMenu);accountMenu.open=true;
+ctx.AccountMenuOutside({target:accountMenu.querySelector('summary')});assert(accountMenu.open);
+ctx.AccountMenuOutside({target:doc.body});assert.equal(accountMenu.open,false);
+assert(ctx.StudentPermissions.has('manageAccounts'));
+ctx.StudentPermissions.setUser({role:'staff',permissions:{editFollow:true}});
+assert(ctx.StudentPermissions.has('editFollow'));assert(!ctx.StudentPermissions.has('editProfiles'));assert(!ctx.StudentPermissions.has('manageAccounts'));
+ctx.StudentPermissions.setUser({role:'admin'});
+assert(q('#new-user-permissions'));
+const permissionBox=q('#new-user-permissions'),importRight=permissionBox.querySelector('[data-permission="importData"]'),profileRight=permissionBox.querySelector('[data-permission="editProfiles"]');
+importRight.checked=true;importRight.onchange();assert(profileRight.checked);profileRight.checked=false;profileRight.onchange();assert.equal(importRight.checked,false);
+ctx.AccountPermissionUI.open({username:'staff.test',displayName:'Staff',role:'staff',active:true,permissions:{editFollow:true}});
+assert(q('#sc-edit-account').open);assert.equal(q('#sc-edit-name').value,'Staff');assert(q('#edit-user-permissions [data-permission="editFollow"]').checked);
+q('#sc-edit-name').value='Staff Updated';await q('#sc-edit-account-form').requestSubmit();
+const updatedAccount=requests.find(r=>r.action==='updateUser');assert(updatedAccount);assert.equal(updatedAccount.p.displayName,'Staff Updated');assert.equal(updatedAccount.p.permissions.editFollow,true);assert.equal(q('#sc-edit-account').open,false);
+
+console.log('PASS fixed internal footer, outside account-menu dismissal and staff permission visibility (DOM fixture).');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};

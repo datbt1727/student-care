@@ -3,6 +3,7 @@ import {db,transaction} from '../lib/db.mjs';
 import {rate} from '../lib/rate.mjs';
 import {fail,assertOrigin,hashPassword,verifyPassword,opaque,digest,equal,encrypt,decrypt,publicUser,verifyTotp,totpSecret,key,validateArchive} from '../lib/security.mjs';
 import {backup} from '../lib/backup.mjs';
+import {normalizePermissions,requirePermission,hasPermission,canWrite,authorizeArchive} from '../lib/permissions.mjs';
 import StudentDeletion from '../lib/deletion.cjs';
 const COOKIE='__Host-sc';
 const audit=(c,u,a,d='')=>c.query('INSERT INTO sc_audit(actor,action,detail) VALUES($1,$2,$3)',[u,a,d]);
@@ -49,7 +50,7 @@ export default async function handler(req,res){
  cookie(res,token,u.must_change?900:remember?seconds:null);return res.json({ok:true,data});
  }
  const raw=parseCookie(req);if(!raw)throw fail('Vui lòng đăng nhập.',401);
- const s=(await db().query("SELECT s.*,u.display_name,u.role,u.active,u.must_change,u.password_hash,u.totp_cipher FROM sc_sessions s JOIN sc_users u USING(username) WHERE token_hash=$1 AND expires_at>now() AND ((s.remember AND last_seen>now()-interval '24 hours') OR (NOT s.remember AND last_seen>now()-interval '60 minutes'))",[digest(raw)])).rows[0];
+ const s=(await db().query("SELECT s.*,u.display_name,u.role,u.active,u.must_change,u.password_hash,u.totp_cipher,u.permissions FROM sc_sessions s JOIN sc_users u USING(username) WHERE token_hash=$1 AND expires_at>now() AND ((s.remember AND last_seen>now()-interval '24 hours') OR (NOT s.remember AND last_seen>now()-interval '60 minutes'))",[digest(raw)])).rows[0];
  if(!s?.active)throw fail('Phiên đã hết hạn hoặc tài khoản bị khóa.',401);
  if(action!=='resume'&&!equal(req.headers['x-sc-csrf'],s.csrf))throw fail('Phiên không hợp lệ. Đăng nhập lại.',403);
  await rate('user:'+s.username,120,60);
@@ -65,31 +66,49 @@ export default async function handler(req,res){
  }
  if(s.must_change||s.pending)throw fail('Bắt buộc đổi mật khẩu tạm trước khi truy cập dữ liệu.',403);
  const admin=()=>{if(s.role!=='admin')throw fail('Chỉ quản trị viên được thực hiện.',403);};
+ const permit=key=>requirePermission(s,key);
+ const accountTarget=async(c,username)=>{const target=(await c.query('SELECT * FROM sc_users WHERE username=$1 FOR UPDATE',[username])).rows[0];if(!target)throw fail('Tài khoản không tồn tại.');if(target.role==='admin'&&s.role!=='admin')throw fail('Nhân viên không được quản lý tài khoản quản trị.',403);return target};
  let result;
  switch(action){
  case 'load':{result=await workspaceFor(s);break;}
- case 'save':{admin();
+ case 'save':{if(!canWrite(s))throw fail('Tài khoản chỉ có quyền đọc dữ liệu.',403);
  // Staff currently share the full workspace. No false per-mentor isolation is claimed.
  const a=validateArchive(JSON.parse(p.json||''));if(!/^[\w-]{8,100}$/.test(p.requestId||''))throw fail('Mã yêu cầu không hợp lệ.');
  result=await transaction(async c=>{await c.query('SELECT id FROM sc_archive WHERE id=1 FOR UPDATE');const prior=(await c.query('SELECT revision FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,p.requestId])).rows[0];if(prior)return {revision:prior.revision,warning:''};
+ const current=(await c.query('SELECT * FROM sc_archive WHERE id=1')).rows[0];if(!current)throw fail('Chưa có dữ liệu.',503);authorizeArchive(s,decrypt(current.cipher,'archive'),a,p);
  const r=await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1 AND revision=$2 RETURNING revision',[encrypt(a,'archive'),p.revision]);if(!r.rowCount)throw fail('Dữ liệu đã được người khác thay đổi. Tải lại trước khi lưu.',409);
  await c.query('INSERT INTO sc_requests(username,request_id,revision) VALUES($1,$2,$3)',[s.username,p.requestId,r.rows[0].revision]);await audit(c,s.username,'workspace_saved','revision='+r.rows[0].revision);return {revision:r.rows[0].revision,warning:''};});result.info=await health();break;}
  case 'health':result=await health();break;
  case 'job':result={status:'done',percent:100,message:'Đã xử lý.'};break;
- case 'logs':admin();result=(await db().query('SELECT * FROM sc_audit ORDER BY id DESC LIMIT 200')).rows.map(r=>[r.at,r.actor,r.action,'Đã ghi nhận',r.detail,'']);break;
- case 'users':admin();result=(await db().query('SELECT * FROM sc_users ORDER BY username')).rows.map(publicUser);break;
+ case 'logs':permit('viewLogs');result=(await db().query('SELECT * FROM sc_audit ORDER BY id DESC LIMIT 200')).rows.map(r=>[r.at,r.actor,r.action,'Đã ghi nhận',r.detail,'']);break;
+ case 'users':permit('manageAccounts');result=(await db().query('SELECT * FROM sc_users ORDER BY username')).rows.map(publicUser);break;
  case 'createUser':{
- admin();const username=String(p.username||'').toLowerCase();if(!/^[a-z0-9._-]{3,60}$/.test(username)||!['admin','staff'].includes(p.role)||typeof p.displayName!=='string'||p.displayName.length>100)throw fail('Thông tin tài khoản không hợp lệ.');
- const hash=await hashPassword(p.password),secret=totpSecret();
- await transaction(async c=>{await c.query('INSERT INTO sc_users(username,display_name,role,password_hash,totp_cipher) VALUES($1,$2,$3,$4,$5)',[username,p.displayName,p.role,hash,encrypt(secret,'totp:'+username)]);await audit(c,s.username,'user_created',username);});
+ permit('manageAccounts');const username=String(p.username||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,60}$/.test(username)||!['admin','staff'].includes(p.role)||typeof p.displayName!=='string'||p.displayName.length>100)throw fail('Thông tin tài khoản không hợp lệ.');
+ if(s.role!=='admin'&&(p.role!=='staff'||Object.values(p.permissions||{}).some(Boolean)))throw fail('Chỉ quản trị viên được cấp quyền bổ sung hoặc quyền quản trị.',403);
+ const permissions=normalizePermissions(p.permissions||{});const hash=await hashPassword(p.password),secret=totpSecret();
+ await transaction(async c=>{await c.query('INSERT INTO sc_users(username,display_name,role,password_hash,totp_cipher,permissions) VALUES($1,$2,$3,$4,$5,$6)',[username,p.displayName,p.role,hash,encrypt(secret,'totp:'+username),JSON.stringify(permissions)]);await audit(c,s.username,'user_created',username);});
  result={message:'Đã tạo tài khoản. Bắt buộc đổi mật khẩu lần đầu. Khóa TOTP (chỉ hiện lần này; bàn giao qua kênh riêng): '+secret};break;}
- case 'resetUser':admin();if(p.username===s.username)throw fail('Sử dụng Đổi mật khẩu cho tài khoản của bạn.');{const hash=await hashPassword(p.password);await transaction(async c=>{const r=await c.query('UPDATE sc_users SET password_hash=$2,must_change=true WHERE username=$1 RETURNING username',[p.username,hash]);if(!r.rowCount)throw fail('Tài khoản không tồn tại.');await c.query('DELETE FROM sc_sessions WHERE username=$1',[p.username]);await audit(c,s.username,'password_reset',p.username);});result={message:'Đã đặt mật khẩu tạm và thu hồi phiên. TOTP không thay đổi.'};}break;
- case 'toggleUser':admin();if(p.username===s.username)throw fail('Không được tự khóa.');await transaction(async c=>{await c.query('UPDATE sc_users SET active=NOT active WHERE username=$1',[p.username]);await c.query('DELETE FROM sc_sessions WHERE username=$1',[p.username]);await audit(c,s.username,'user_toggled',p.username);});result={message:'Đã cập nhật và thu hồi phiên.'};break;
- case 'artifact':await audit(db(),s.username,p.kind==='input'?'import_file':'export_file');result={url:'',id:'processed-client-side',message:'File được xử lý trên thiết bị; dữ liệu đã lưu Neon. Không lưu file gốc.'};break;
- case 'backup':admin();await rate('backup',1,900);result=await backup();break;
+ case 'resetUser':permit('manageAccounts');if(p.username===s.username)throw fail('Sử dụng Đổi mật khẩu cho tài khoản của bạn.');{const hash=await hashPassword(p.password);await transaction(async c=>{await accountTarget(c,p.username);const r=await c.query('UPDATE sc_users SET password_hash=$2,must_change=true WHERE username=$1 RETURNING username',[p.username,hash]);if(!r.rowCount)throw fail('Tài khoản không tồn tại.');await c.query('DELETE FROM sc_sessions WHERE username=$1',[p.username]);await audit(c,s.username,'password_reset',p.username);});result={message:'Đã đặt mật khẩu tạm và thu hồi phiên. TOTP không thay đổi.'};}break;
+ case 'toggleUser':permit('manageAccounts');if(p.username===s.username)throw fail('Không được tự khóa.');await transaction(async c=>{await accountTarget(c,p.username);await c.query('UPDATE sc_users SET active=NOT active WHERE username=$1',[p.username]);await c.query('DELETE FROM sc_sessions WHERE username=$1',[p.username]);await audit(c,s.username,'user_toggled',p.username);});result={message:'Đã cập nhật và thu hồi phiên.'};break;
+ case 'updateUser':{
+ permit('manageAccounts');const username=String(p.username||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,60}$/.test(username)||typeof p.displayName!=='string'||!p.displayName.trim()||p.displayName.length>100||!['admin','staff'].includes(p.role)||typeof p.active!=='boolean')throw fail('Thông tin tài khoản không hợp lệ.');
+ const permissions=normalizePermissions(p.permissions||{});
+ await transaction(async c=>{
+ await c.query("SELECT username FROM sc_users WHERE role='admin' AND active=true ORDER BY username FOR UPDATE");
+ const target=await accountTarget(c,username);
+ if(username===s.username&&(p.role!==target.role||p.active!==target.active||JSON.stringify(permissions)!==JSON.stringify(normalizePermissions(target.permissions||{}))))throw fail('Không được tự đổi quyền hoặc tự khóa tài khoản.',403);
+ if(s.role!=='admin'&&(p.role!=='staff'||JSON.stringify(permissions)!==JSON.stringify(normalizePermissions(target.permissions||{}))))throw fail('Chỉ quản trị viên được thay đổi quyền.',403);
+ if(target.role==='admin'&&target.active&&(!p.active||p.role!=='admin')){const count=(await c.query("SELECT count(*)::integer AS n FROM sc_users WHERE role='admin' AND active=true")).rows[0].n;if(count<=1)throw fail('Phải giữ ít nhất một quản trị viên đang hoạt động.',403)}
+ await c.query('UPDATE sc_users SET display_name=$2,role=$3,active=$4,permissions=$5 WHERE username=$1',[username,p.displayName.trim(),p.role,p.active,JSON.stringify(permissions)]);
+ if(username!==s.username)await c.query('DELETE FROM sc_sessions WHERE username=$1',[username]);
+ await audit(c,s.username,'account_updated',JSON.stringify({username,role:p.role,active:p.active,permissions}));
+ });result={message:'Đã lưu tài khoản. Các phiên cũ của người được chỉnh sửa đã được thu hồi; cần đăng nhập lại.'};break;
+ }
+ case 'artifact':if(p.kind==='input')permit('importData');else if(p.kind==='restore')permit('restoreData');else if(p.kind!=='export')throw fail('Loại file không hợp lệ.');await audit(db(),s.username,p.kind==='input'?'import_file':'export_file');result={url:'',id:'processed-client-side',message:'File được xử lý trên thiết bị; dữ liệu đã lưu Neon. Không lưu file gốc.'};break;
+ case 'backup':permit('backupData');await rate('backup',1,900);result=await backup();break;
  case 'repairMirror':admin();result=await health();break;
- case 'previewStudentDeletion':admin();{const r=(await db().query('SELECT * FROM sc_archive WHERE id=1')).rows[0];const plan=StudentDeletion.plan(decrypt(r.cipher,'archive'),p);result={...plan,revision:r.revision,planToken:encrypt({plan,revision:r.revision,username:s.username,expires:Date.now()+300000},'delete-plan')};}break;
- case 'deleteStudents':admin();{const ticket=decrypt(p.planToken,'delete-plan');if(ticket.username!==s.username||ticket.expires<Date.now()||p.confirmation!==ticket.plan.confirmation)throw fail('Xác nhận xóa hết hạn hoặc không khớp.');result=await transaction(async c=>{const r=(await c.query('SELECT * FROM sc_archive WHERE id=1 FOR UPDATE')).rows[0];if(r.revision!==ticket.revision)throw fail('Dữ liệu đã thay đổi. Kiểm tra lại phạm vi xóa.',409);const a=decrypt(r.cipher,'archive');StudentDeletion.apply(a,ticket.plan);await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1',[encrypt(a,'archive')]);await audit(c,s.username,'student_deleted','count='+ticket.plan.ids.length);return {revision:r.revision+1,counts:ticket.plan.counts,warning:''};});}break;
+ case 'previewStudentDeletion':permit('deleteData');{const r=(await db().query('SELECT * FROM sc_archive WHERE id=1')).rows[0];const plan=StudentDeletion.plan(decrypt(r.cipher,'archive'),p);result={...plan,revision:r.revision,planToken:encrypt({plan,revision:r.revision,username:s.username,expires:Date.now()+300000},'delete-plan')};}break;
+ case 'deleteStudents':permit('deleteData');{const ticket=decrypt(p.planToken,'delete-plan');if(ticket.username!==s.username||ticket.expires<Date.now()||p.confirmation!==ticket.plan.confirmation)throw fail('Xác nhận xóa hết hạn hoặc không khớp.');result=await transaction(async c=>{const r=(await c.query('SELECT * FROM sc_archive WHERE id=1 FOR UPDATE')).rows[0];if(r.revision!==ticket.revision)throw fail('Dữ liệu đã thay đổi. Kiểm tra lại phạm vi xóa.',409);const a=decrypt(r.cipher,'archive');StudentDeletion.apply(a,ticket.plan);await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1',[encrypt(a,'archive')]);await audit(c,s.username,'student_deleted','count='+ticket.plan.ids.length);return {revision:r.revision+1,counts:ticket.plan.counts,warning:''};});}break;
  default:throw fail('Chức năng không được hỗ trợ.',400);
  }
  res.json({ok:true,data:result});
