@@ -3,6 +3,8 @@ import crypto from 'node:crypto';
 const root=new URL('../',import.meta.url);
 let html=await fs.readFile(new URL('../web/source.html',import.meta.url),'utf8');
 await fs.mkdir(new URL('../dist/assets/',import.meta.url),{recursive:true});
+await fs.cp(new URL('../web/assets/brand/',import.meta.url),new URL('../dist/assets/brand/',import.meta.url),{recursive:true});
+await fs.copyFile(new URL('../web/assets/brand/favicon.ico',import.meta.url),new URL('../dist/favicon.ico',import.meta.url));
 const auditedZip=await fs.readFile(new URL('../node_modules/jszip/dist/jszip.min.js',import.meta.url),'utf8');
 let i=0;
 const scripts=[];
