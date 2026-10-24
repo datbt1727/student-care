@@ -11,12 +11,14 @@ function select(root,s){if(s.includes(','))return [...new Set(s.split(',').flatM
 N.prototype.before=function(...nodes){for(const n of nodes)this.parentElement.insertBefore(n,this)};
 const html=fs.readFileSync(root+'/web/source.html','utf8'),scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
 const doc=new N('document');doc.append(...parse(html.replace(/<script>[\s\S]*?<\/script>/g,'').replace(/<style>[\s\S]*?<\/style>/g,'')));doc.documentElement=doc.querySelector('html');doc.body=doc.querySelector('body');doc.createElement=t=>new N(t);
+const docEvents={};doc.addEventListener=(name,fn)=>{(docEvents[name]??=[]).push(fn)};N.prototype.matches=function(s){return s.split(',').some(part=>match(this,part.trim()))};
 const downloads=[],storage=new Map(),requests=[];
 let saved={version:2,active:'2026-FALL',terms:{'2026-FALL':{termId:'2026-FALL',termLabel:'FALL 2026',asof:'2026-10-23',limit:25,early:20,students:[],records:[],courseCatalog:[],notes:{},dailyFollow:{},log:[],importFiles:[]}},registry:{students:{},events:[],seen:{}},studentServices:{certificates:[],insurance:[],audit:[]}};
 const user={username:'admin.test',displayName:'Admin',role:'admin',active:true,mustChange:false};
 const health={mirrorStatus:'Neon',backupAt:'2026-10-23',backupError:'',mirrorError:'',info:{spreadsheetUrl:'#',driveUrl:'#'}};
+let syncWorkspace=null;
 const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);requests.push({action,p,headers:options.headers});let data;
-switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
+switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'sync':data=syncWorkspace?{archive:structuredClone(syncWorkspace),revision:p.revision+1,changed:true,user}:{revision:p.revision,changed:false,user};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
 const observers=[];
 const ctx={MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
@@ -39,6 +41,17 @@ q('#asof').value='2026-10-22';q('#asof').onchange();vm.runInContext('render()',c
 assert.equal(q('#asof').value,'2026-10-22');assert.equal(q('#import-date').value,'2026-10-20');
 console.log('PASS Vietnam midnight defaults and manual dates preserved across renders/tab visits.');
 const login=requests.find(r=>r.action==='login');assert.equal(login.p.password,'Password#1234');assert.equal(login.p.remember,true);assert.equal(login.p.totp,'123456');assert(!login.p.verifier);assert.equal(login.p.includeWorkspace,true);assert(!requests.some(r=>r.action==='load'),'inline authenticated workspace avoids the second load request');
+// A second account adds a semester; polling updates the picker without reloading or saving it back.
+await q('#cloud-sync').click();ctx.Operation.clear();syncWorkspace=structuredClone(saved);syncWorkspace.terms['2027-SPRING']={...structuredClone(saved.terms['2026-FALL']),termId:'2027-SPRING',termLabel:'SPRING 2027'};
+const savesBeforeSync=requests.filter(r=>r.action==='save').length;
+await ctx.StudentLiveSync.check();
+assert(q('#term-switch').innerHTML.includes('SPRING 2027'),'new semester from another account appears');
+assert.equal(q('#term-switch').value,'2026-FALL','current semester stays selected');
+assert.equal(q('#import-date').value,'2026-10-20','manual import date stays intact');
+assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeSync,'remote render never saves over server data');
+const beforeFileGuard=requests.filter(r=>r.action==='sync').length;q('#attendance-files').files=[{name:'draft.xlsx'}];
+await ctx.StudentLiveSync.check();assert.equal(requests.filter(r=>r.action==='sync').length,beforeFileGuard,'selected import file blocks refresh');q('#attendance-files').files=[];const draft=q('#registry-paste');draft.value='Ghi chú đang nhập chưa lưu';for(const fn of docEvents.input||[])fn({target:draft});await ctx.StudentLiveSync.check();assert.equal(draft.value,'Ghi chú đang nhập chưa lưu');assert.equal(requests.filter(r=>r.action==='sync').length,beforeFileGuard,'typed draft blocks refresh');draft.value='';syncWorkspace=null;
+console.log('PASS cross-account semester sync preserves selection/manual dates and does not write; import selection blocks refresh.');
 q('#registry-paste').value='MSSV\tHọ tên\tEmail\tMentor\nTEST001\tSinh viên thử\ttest@example.test\tCB01';await q('#registry-check').click();assert(q('#import-review').open);await q('#review-confirm').click();
 assert(saved.registry.students.TEST001);assert(requests.some(r=>r.action==='save'&&r.headers['X-SC-CSRF']==='test-csrf'));
 assert.equal(storage.size,0);assert.equal(q('#auth-password').value,'');

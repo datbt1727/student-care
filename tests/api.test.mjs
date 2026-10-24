@@ -14,6 +14,7 @@ async function query(sql,p=[]){
  if(sql.includes('UPDATE sc_sessions SET last_seen')||sql.includes('INSERT INTO sc_audit'))return {rows:[],rowCount:1};
  if(sql.includes('DELETE FROM sc_sessions')){deletedSessions++;session=null;return {rows:[],rowCount:1};}
  if(sql.includes('UPDATE sc_users SET password_hash')){user.password_hash=p[1];user.must_change=false;return {rows:[],rowCount:1};}
+ if(sql.includes('SELECT revision,cipher FROM sc_archive'))return {rows:[{cipher:archive,revision}]};
  if(sql.includes('SELECT * FROM sc_archive'))return {rows:[{cipher:archive,revision}]};
  if(sql.includes('SELECT completed_at,status'))return {rows:[]};
  throw Error('Unhandled mocked SQL: '+sql);
@@ -37,3 +38,13 @@ test('staff cannot bypass admin-only document write or admin account APIs',async
 test('first password change rejects reuse and revokes all sessions',async()=>{await init({pending:true});assert.equal((await call('changePassword',{oldPassword:'Original#Password2026',newPassword:'Original#Password2026'})).statusCode,400);const r=await call('changePassword',{oldPassword:'Original#Password2026',newPassword:'Replacement#Password2026'});assert.equal(r.statusCode,200);assert.equal(user.must_change,false);assert.equal(deletedSessions,1);assert.match(r.headers['Set-Cookie'],/Max-Age=0/);});
 test('login requires TOTP; remember controls HttpOnly persistent cookie; replay blocked',async()=>{const secret=await init();const p={username:'admin',password:'Original#Password2026',totp:totp(secret),remember:true};const r=await call('login',p);assert.equal(r.statusCode,200);assert.match(r.headers['Set-Cookie'],/Secure; HttpOnly; SameSite=Strict; Max-Age=604800/);assert(!r.body.data.user.password_hash);assert(!r.body.data.token.includes('session-token'));assert.equal((await call('login',p)).statusCode,401);const next=await init();const no=await call('login',{...p,totp:totp(next),remember:false});assert.equal(no.statusCode,200);assert(!no.headers['Set-Cookie'].includes('Max-Age'));});
 test('newly provisioned account cookie is short lived and stays pending',async()=>{const secret=await init({pending:true});const r=await call('login',{username:'admin',password:'Original#Password2026',totp:totp(secret),remember:true});assert.equal(r.statusCode,200);assert.match(r.headers['Set-Cookie'],/Max-Age=900/);assert.equal(session.pending,true);});
+
+test('background sync authenticates, checks revision, and only returns changed workspace',async()=>{
+ await init({role:'staff'});
+ assert.equal((await call('sync',{revision:1},{cookie:''})).statusCode,401);
+ assert.equal((await call('sync',{revision:1},{'x-sc-csrf':'bad'})).statusCode,403);
+ assert.equal((await call('sync',{revision:0})).statusCode,400);
+ let r=await call('sync',{revision:1});assert.equal(r.statusCode,200);assert.equal(r.body.data.changed,false);assert(!('archive' in r.body.data));assert(!('password_hash' in r.body.data.user));
+ revision=2;r=await call('sync',{revision:1});assert.equal(r.body.data.changed,true);assert.equal(r.body.data.revision,2);assert(r.body.data.archive.terms['2026-FALL']);
+ await init({pending:true});assert.equal((await call('sync',{revision:1})).statusCode,403);
+});

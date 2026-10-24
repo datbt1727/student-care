@@ -73,6 +73,7 @@ export default async function handler(req,res){
  let result;
  switch(action){
  case 'load':{result=await workspaceFor(s);break;}
+ case 'sync':{if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const row=(await db().query('SELECT revision,cipher FROM sc_archive WHERE id=1')).rows[0];if(!row)throw fail('Chưa có dữ liệu.',503);result={revision:row.revision,user:publicUser(s),changed:row.revision!==p.revision};if(result.changed)result.archive=decrypt(row.cipher,'archive');break;}
  case 'save':{if(!canWrite(s))throw fail('Tài khoản chỉ có quyền đọc dữ liệu.',403);
  // Staff currently share the full workspace. No false per-mentor isolation is claimed.
  const a=validateArchive(JSON.parse(p.json||''));if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const requestHash=digest(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])),receipt=revision=>({committed:true,requestId:p.requestId,requestHash,revision});if(!/^[\w-]{8,100}$/.test(p.requestId||''))throw fail('Mã yêu cầu không hợp lệ.');
