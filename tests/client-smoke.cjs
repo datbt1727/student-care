@@ -16,7 +16,7 @@ let saved={version:2,active:'2026-FALL',terms:{'2026-FALL':{termId:'2026-FALL',t
 const user={username:'admin.test',displayName:'Admin',role:'admin',active:true,mustChange:false};
 const health={mirrorStatus:'Neon',backupAt:'2026-10-23',backupError:'',mirrorError:'',info:{spreadsheetUrl:'#',driveUrl:'#'}};
 const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);requests.push({action,p,headers:options.headers});let data;
-switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:2,warning:'',info:health};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
+switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:2,warning:'',info:health};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
 const observers=[];
 const ctx={MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
@@ -28,7 +28,7 @@ assert(doc.documentElement.classList.contains('sc-auth-open'));assert(q('.worksp
 q('#auth-username').value='admin.test';q('#auth-password').value='Password#1234';q('#auth-totp').value='123456';q('#auth-remember').checked=true;
 await q('#login-form').requestSubmit();
 assert(q('#auth-gate').hidden,q('#auth-message').textContent);
-const login=requests.find(r=>r.action==='login');assert.equal(login.p.password,'Password#1234');assert.equal(login.p.remember,true);assert.equal(login.p.totp,'123456');assert(!login.p.verifier);
+const login=requests.find(r=>r.action==='login');assert.equal(login.p.password,'Password#1234');assert.equal(login.p.remember,true);assert.equal(login.p.totp,'123456');assert(!login.p.verifier);assert.equal(login.p.includeWorkspace,true);assert(!requests.some(r=>r.action==='load'),'inline authenticated workspace avoids the second load request');
 q('#registry-paste').value='MSSV\tHọ tên\tEmail\tMentor\nTEST001\tSinh viên thử\ttest@example.test\tCB01';await q('#registry-check').click();assert(q('#import-review').open);await q('#review-confirm').click();
 assert(saved.registry.students.TEST001);assert(requests.some(r=>r.action==='save'&&r.headers['X-SC-CSRF']==='test-csrf'));
 assert.equal(storage.size,0);assert.equal(q('#auth-password').value,'');
@@ -55,6 +55,21 @@ pending=ctx.StudentFileSave.save('share.xlsx','bytes','application/octet-stream'
 await q('.sc-save-dialog [data-save="share"]').click();await pending;assert.equal(shares,1);assert.equal(downloads.length,0);
 let aborted=false;await assert.rejects(ctx.StudentFileSave.writeHandle({createWritable:async()=>({write:async()=>{throw Error('disk full')},abort:async()=>{aborted=true}})},new Blob(['x'])),/disk full/);assert(aborted);
 const palette=vm.runInContext('qaStyleXml()',ctx);assert(palette.includes('FFC4D9EB'));assert(palette.includes('FFECD2DD'));assert(palette.includes('FF34475F'));
+
+vm.runInContext("ConsoleLayout.navigate('imports');Operation.start('Kiểm tra file');Operation.fail('Dòng kiểm thử không hợp lệ.',['#attendance-files']);",ctx);
+const importBadge=q('button[data-console-page="imports"] .tab-badge');assert(importBadge&&!importBadge.hidden);assert(!q('#import-error-note').hidden);assert(q('#import-error-note').textContent.includes('Dòng kiểm thử'));
+q('#import-error-note button').click();assert(importBadge.hidden);assert(q('#import-error-note').hidden);
+vm.runInContext("Operation.fail('Sự cố chưa xác định.');",ctx);assert(importBadge.hidden,'generic client errors do not create import notifications');
+vm.runInContext('Operation.clear()',ctx);
+// A double submit sends only one login request while authentication is pending.
+const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
+ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
+q('#auth-password').value='Password#1234';q('#auth-totp').value='654321';
+const firstSubmit=q('#login-form').requestSubmit();const secondSubmit=q('#login-form').requestSubmit();await new Promise(r=>setTimeout(r,0));assert.equal(submissions,1);releaseLogin();await Promise.all([firstSubmit,secondSubmit]);
+ctx.fetch=previousFetch;
+// A real 429 displays a waiting state and blocks repeated submits without weakening MFA.
+ctx.fetch=async()=>({json:async()=>({ok:false,code:'429',retryAfter:30,error:'Tạm giới hạn số lần thử.'})});q('#auth-password').value='Password#1234';await q('#login-form').requestSubmit();assert(q('#login-submit').disabled);assert(q('#login-submit').textContent.includes('Thử lại sau'));assert.equal(q('#auth-password').value,'Password#1234');
+console.log('PASS inline authenticated workspace/no duplicate login; import badge ownership/acknowledgment; login cooldown.');
 console.log('PASS save dialog/native picker/cancel/share/write failure; ordered import tabs; approved export palette.');
 console.log('PASS secure client login/remember/TOTP/import review/server-save/no persistent storage (DOM fixture, not browser)');
 })().catch(e=>{console.error(e);process.exitCode=1});

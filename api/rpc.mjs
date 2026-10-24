@@ -1,5 +1,6 @@
 import {createHmac} from 'node:crypto';
 import {db,transaction} from '../lib/db.mjs';
+import {rate} from '../lib/rate.mjs';
 import {fail,assertOrigin,hashPassword,verifyPassword,opaque,digest,equal,encrypt,decrypt,publicUser,verifyTotp,totpSecret,key,validateArchive} from '../lib/security.mjs';
 import {backup} from '../lib/backup.mjs';
 import StudentDeletion from '../lib/deletion.cjs';
@@ -7,8 +8,13 @@ const COOKIE='__Host-sc';
 const audit=(c,u,a,d='')=>c.query('INSERT INTO sc_audit(actor,action,detail) VALUES($1,$2,$3)',[u,a,d]);
 const cookie=(res,value,age)=>res.setHeader('Set-Cookie',COOKIE+'='+value+'; Path=/; Secure; HttpOnly; SameSite=Strict'+(age===null?'':'; Max-Age='+age));
 const parseCookie=req=>String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(COOKIE+'='))?.slice(COOKIE.length+1)||'';
-async function rate(bucket,max,seconds){const r=await db().query("INSERT INTO sc_rate(bucket,n,until_at) VALUES($1,1,now()+$2*interval '1 second') ON CONFLICT(bucket) DO UPDATE SET n=CASE WHEN sc_rate.until_at<now() THEN 1 ELSE sc_rate.n+1 END,until_at=CASE WHEN sc_rate.until_at<now() THEN now()+$2*interval '1 second' ELSE sc_rate.until_at END RETURNING n",[bucket,seconds]);if(r.rows[0].n>max)throw fail('Thao tác quá nhanh. Vui lòng thử lại sau.',429);}
 async function health(){const r=await db().query("SELECT completed_at,status FROM sc_backup_runs ORDER BY day DESC LIMIT 1");const last=r.rows[0];const ok=last?.status==='success'&&Date.now()-new Date(last.completed_at).getTime()<30*3600000;return {mirrorStatus:'Neon · dữ liệu mã hóa',backupAt:last?.completed_at||'',backupError:ok?'':'Chưa có sao lưu thành công trong 30 giờ. Cần kiểm tra.',mirrorError:'',info:{spreadsheetUrl:'#',driveUrl:'#'}};}
+// Independent reads run together; pending sessions never call this helper.
+async function workspaceFor(user){
+ const [,read,backupHealth]=await Promise.all([audit(db(),user.username,'read_workspace'),db().query('SELECT * FROM sc_archive WHERE id=1'),health()]);
+ const r=read.rows[0];if(!r)throw fail('Quản trị viên chưa khởi tạo dữ liệu.',503);
+ return {archive:decrypt(r.cipher,'archive'),revision:r.revision,user:publicUser(user),health:backupHealth};
+}
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');
  try{
@@ -18,14 +24,15 @@ export default async function handler(req,res){
  const body=typeof req.body==='string'?JSON.parse(req.body):req.body;
  if(!body||Buffer.byteLength(JSON.stringify(body))>3500000)throw fail('Yêu cầu vượt 3,5 MB. Chia nhỏ lần nhập.',413);
  const {action,p={}}=body;
- if(typeof action!=='string')throw fail('Yêu cầu không hợp lệ.');
+ if(typeof action!=='string'||!p||typeof p!=='object'||Array.isArray(p))throw fail('Yêu cầu không hợp lệ.');
  const ip=String(req.headers['x-vercel-forwarded-for']||req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',')[0];
  const ipKey=createHmac('sha256',key('RATE_KEY')).update(ip).digest('hex');
  await rate('ip:'+ipKey,180,60);
  if(action==='challenge')return res.json({ok:true,data:{salt:'a'.repeat(32),iterations:1}});
  if(action==='login'){
- const username=String(p.username||'').toLowerCase();await rate('login-ip:'+ipKey,12,900);await rate('login-user:'+digest(username),8,900);
- const u=(await db().query('SELECT * FROM sc_users WHERE username=$1',[username])).rows[0];
+ const username=String(p.username||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,60}$/.test(username))throw fail('Thông tin đăng nhập hoặc mã xác thực không đúng.',401);
+ const [,,userRead]=await Promise.all([rate('login-ip:v2:'+ipKey,60,900),rate('login-user:'+digest(username),8,900),db().query('SELECT * FROM sc_users WHERE username=$1',[username])]);
+ const u=userRead.rows[0];
  // Fixed valid dummy hash ensures missing accounts still pay the same scrypt cost.
  const dummy='scrypt$0123456789abcdef0123456789abcdef$'+'0'.repeat(128);
  const valid=await verifyPassword(p.password,u?.password_hash||dummy);
@@ -36,8 +43,10 @@ export default async function handler(req,res){
  const changed=await c.query('UPDATE sc_users SET last_totp_step=$2 WHERE username=$1 AND last_totp_step<$2 AND active=true AND password_hash=$3 RETURNING username',[u.username,step,u.password_hash]);if(!changed.rowCount)throw fail('Mã xác thực đã dùng. Chờ mã mới.',401);
  await c.query("INSERT INTO sc_sessions(token_hash,username,csrf,expires_at,pending,remember) VALUES($1,$2,$3,now()+$4*interval '1 second',$5,$6)",[digest(token),u.username,csrf,u.must_change?900:seconds,u.must_change,remember]);
  await audit(c,u.username,'login');
+ await c.query('DELETE FROM sc_rate WHERE bucket=$1',['login-user:'+digest(username)]);
  });
- cookie(res,token,u.must_change?900:remember?seconds:null);return res.json({ok:true,data:{token:'cookie',csrf,user:publicUser(u)}});
+ const data={token:'cookie',csrf,user:publicUser(u)};if(p.includeWorkspace===true&&!u.must_change){try{data.workspace=await workspaceFor(u)}catch(e){data.workspaceUnavailable=true}}
+ cookie(res,token,u.must_change?900:remember?seconds:null);return res.json({ok:true,data});
  }
  const raw=parseCookie(req);if(!raw)throw fail('Vui lòng đăng nhập.',401);
  const s=(await db().query("SELECT s.*,u.display_name,u.role,u.active,u.must_change,u.password_hash,u.totp_cipher FROM sc_sessions s JOIN sc_users u USING(username) WHERE token_hash=$1 AND expires_at>now() AND ((s.remember AND last_seen>now()-interval '24 hours') OR (NOT s.remember AND last_seen>now()-interval '60 minutes'))",[digest(raw)])).rows[0];
@@ -46,7 +55,7 @@ export default async function handler(req,res){
  await rate('user:'+s.username,120,60);
  await db().query('UPDATE sc_sessions SET last_seen=now() WHERE token_hash=$1',[digest(raw)]);
  if(action==='logout'){await db().query('DELETE FROM sc_sessions WHERE token_hash=$1',[digest(raw)]);cookie(res,'',0);return res.json({ok:true,data:{message:'Đã đăng xuất.'}});}
- if(action==='resume')return res.json({ok:true,data:{user:publicUser(s),csrf:s.csrf,token:'cookie'}});
+ if(action==='resume'){const data={user:publicUser(s),csrf:s.csrf,token:'cookie'};if(p.includeWorkspace===true&&!s.must_change&&!s.pending){try{data.workspace=await workspaceFor(s)}catch(e){data.workspaceUnavailable=true}}return res.json({ok:true,data});}
  if(action==='changePassword'){
  if(!await verifyPassword(p.oldPassword,s.password_hash))throw fail('Mật khẩu hiện tại không đúng.',403);
  if(await verifyPassword(p.newPassword,s.password_hash))throw fail('Mật khẩu mới phải khác mật khẩu cũ.');
@@ -58,7 +67,7 @@ export default async function handler(req,res){
  const admin=()=>{if(s.role!=='admin')throw fail('Chỉ quản trị viên được thực hiện.',403);};
  let result;
  switch(action){
- case 'load':{await audit(db(),s.username,'read_workspace');const r=(await db().query('SELECT * FROM sc_archive WHERE id=1')).rows[0];if(!r)throw fail('Quản trị viên chưa khởi tạo dữ liệu.',503);result={archive:decrypt(r.cipher,'archive'),revision:r.revision,user:publicUser(s),health:await health()};break;}
+ case 'load':{result=await workspaceFor(s);break;}
  case 'save':{admin();
  // Staff currently share the full workspace. No false per-mentor isolation is claimed.
  const a=validateArchive(JSON.parse(p.json||''));if(!/^[\w-]{8,100}$/.test(p.requestId||''))throw fail('Mã yêu cầu không hợp lệ.');
@@ -84,5 +93,5 @@ export default async function handler(req,res){
  default:throw fail('Chức năng không được hỗ trợ.',400);
  }
  res.json({ok:true,data:result});
- }catch(e){const status=e.status||(e.code==='23505'?409:500);if(status===500)console.error('StudentCare operation failed',e.code||e.name);res.status(status).json({ok:false,code:status===401?'SESSION':String(status),error:status===500?'Máy chủ chưa xử lý được. Dữ liệu chưa xác nhận lưu; thử lại sau.':e.code==='23505'?'Tên tài khoản đã tồn tại.':e.message});}
+ }catch(e){const status=e.status||(e.code==='23505'?409:500);if(status===500)console.error('StudentCare operation failed',e.code||e.name);if(status===429){e.retryAfter=Math.max(1,Math.min(900,Number(e.retryAfter)||5));res.setHeader('Retry-After',String(e.retryAfter))}res.status(status).json({ok:false,...(status===429?{retryAfter:e.retryAfter}:{}),code:status===401?'SESSION':String(status),error:status===500?'Máy chủ chưa xử lý được. Dữ liệu chưa xác nhận lưu; thử lại sau.':e.code==='23505'?'Tên tài khoản đã tồn tại.':e.message});}
 }

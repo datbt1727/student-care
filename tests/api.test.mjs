@@ -5,6 +5,7 @@ process.env.DATA_KEY=randomBytes(32).toString('base64');process.env.RATE_KEY=ran
 let user,session,archive,revision,deletedSessions;
 async function query(sql,p=[]){
  if(/^(BEGIN|COMMIT|ROLLBACK)/.test(sql))return {rows:[],rowCount:0};
+ if(sql.includes('DELETE FROM sc_rate'))return {rows:[],rowCount:1};
  if(sql.includes('INSERT INTO sc_rate'))return {rows:[{n:1}],rowCount:1};
  if(sql==='SELECT * FROM sc_users WHERE username=$1')return {rows:p[0]===user.username?[user]:[]};
  if(sql.includes('SELECT s.*,u.'))return {rows:session&&p[0]===session.token_hash?[{...session,...user}]:[]};
