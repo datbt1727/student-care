@@ -60,9 +60,10 @@ pending=ctx.StudentFileSave.save('cancel.xlsx','bytes','application/octet-stream
 await q('.sc-save-dialog [data-save="picker"]').click();assert(q('.sc-save-dialog').open);assert.equal(downloads.length,0);
 const rejection=assert.rejects(pending,{name:'AbortError'});q('.sc-save-dialog [data-save="cancel"]').click();await rejection;
 ctx.showSaveFilePicker=undefined;ctx.File=class extends Blob{constructor(parts,name,opts){super(parts,opts);this.name=name}};
-let shares=0;ctx.navigator={canShare:()=>true,share:async payload=>{assert.equal(payload.files[0].name,'share.xlsx');shares++}};
-pending=ctx.StudentFileSave.save('share.xlsx','bytes','application/octet-stream');assert.equal(shares,0);
-await q('.sc-save-dialog [data-save="share"]').click();await pending;assert.equal(shares,1);assert.equal(downloads.length,0);
+let shares=0;ctx.navigator={canShare:()=>true,share:async()=>{shares++}};
+pending=ctx.StudentFileSave.save('browser.xlsx','bytes','application/octet-stream');
+assert(!q('.sc-save-dialog [data-save="share"]'),'share action removed even on browsers that support sharing');assert.equal(shares,0);
+await q('.sc-save-dialog [data-save="download"]').click();await pending;assert.equal(shares,0);assert.equal(downloads.length,1);downloads.length=0;
 let aborted=false;await assert.rejects(ctx.StudentFileSave.writeHandle({createWritable:async()=>({write:async()=>{throw Error('disk full')},abort:async()=>{aborted=true}})},new Blob(['x'])),/disk full/);assert(aborted);
 const palette=vm.runInContext('qaStyleXml()',ctx);assert(palette.includes('FFC4D9EB'));assert(palette.includes('FFECD2DD'));assert(palette.includes('FF34475F'));
 
@@ -122,6 +123,6 @@ ctx.fetch=previousFetch;
 // A real 429 displays a waiting state and blocks repeated submits without weakening MFA.
 ctx.fetch=async()=>({json:async()=>({ok:false,code:'429',retryAfter:30,error:'Tạm giới hạn số lần thử.'})});q('#auth-password').value='Password#1234';await q('#login-form').requestSubmit();assert(q('#login-submit').disabled);assert(q('#login-submit').textContent.includes('Thử lại sau'));assert.equal(q('#auth-password').value,'Password#1234');
 console.log('PASS inline authenticated workspace/no duplicate login; import badge ownership/acknowledgment; login cooldown.');
-console.log('PASS save dialog/native picker/cancel/share/write failure; ordered import tabs; approved export palette.');
+console.log('PASS save dialog/native picker/cancel/browser download/write failure; ordered import tabs; approved export palette.');
 console.log('PASS secure client login/remember/TOTP/import review/server-save/no persistent storage (DOM fixture, not browser)');
 })().catch(e=>{console.error(e);process.exitCode=1});
