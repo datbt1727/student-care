@@ -1,5 +1,4 @@
-import fs from 'node:fs/promises';import {decrypt} from '../lib/security.mjs';
-const backup=decrypt(await fs.readFile(process.argv[2],'utf8'),'student-care-backup-v1','BACKUP_KEY');
-if(backup.format!==1||!Array.isArray(backup.tables.sc_users)||backup.tables.sc_archive.length!==1)throw Error('Backup format invalid');
+import fs from 'node:fs/promises';import {decrypt} from '../lib/security.mjs';import {validateSnapshot} from '../lib/snapshot.mjs';
+const backup=validateSnapshot(decrypt(await fs.readFile(process.argv[2],'utf8'),'student-care-backup-v1','BACKUP_KEY'));
 const a=decrypt(backup.tables.sc_archive[0].cipher,'archive');
-console.log('Giải mã được. Học kỳ:',Object.keys(a.terms).length,'; tài khoản:',backup.tables.sc_users.length,'; thời điểm:',backup.at);
+console.log('Đã kiểm tra cả hai lớp mã hóa, cấu trúc hồ sơ, tài khoản và Authenticator. Học kỳ:',Object.keys(a.terms).length,'; tài khoản:',backup.tables.sc_users.length,'; revision:',backup.tables.sc_archive[0].revision,'; thời điểm:',backup.at);

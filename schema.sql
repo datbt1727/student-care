@@ -17,5 +17,6 @@ CREATE TABLE IF NOT EXISTS sc_archive (id integer PRIMARY KEY CHECK(id=1),revisi
 CREATE TABLE IF NOT EXISTS sc_audit (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,at timestamptz NOT NULL DEFAULT now(),actor text NOT NULL,action text NOT NULL,detail text NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sc_rate (bucket text PRIMARY KEY,n integer NOT NULL,until_at timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS sc_requests (username text NOT NULL,request_id text NOT NULL,revision integer NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(username,request_id));
+ALTER TABLE sc_requests ADD COLUMN IF NOT EXISTS request_hash text;
 CREATE TABLE IF NOT EXISTS sc_backup_runs (day date PRIMARY KEY,started_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz,status text NOT NULL,object_key text,error text);
 COMMIT;

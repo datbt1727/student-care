@@ -16,7 +16,7 @@ let saved={version:2,active:'2026-FALL',terms:{'2026-FALL':{termId:'2026-FALL',t
 const user={username:'admin.test',displayName:'Admin',role:'admin',active:true,mustChange:false};
 const health={mirrorStatus:'Neon',backupAt:'2026-10-23',backupError:'',mirrorError:'',info:{spreadsheetUrl:'#',driveUrl:'#'}};
 const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);requests.push({action,p,headers:options.headers});let data;
-switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:2,warning:'',info:health};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
+switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
 const observers=[];
 const ctx={MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
@@ -67,9 +67,8 @@ let aborted=false;await assert.rejects(ctx.StudentFileSave.writeHandle({createWr
 const palette=vm.runInContext('qaStyleXml()',ctx);assert(palette.includes('FFC4D9EB'));assert(palette.includes('FFECD2DD'));assert(palette.includes('FF34475F'));
 
 vm.runInContext("ConsoleLayout.navigate('imports');Operation.start('Kiểm tra file');Operation.fail('Dòng kiểm thử không hợp lệ.',['#attendance-files']);",ctx);
-const importBadge=q('button[data-console-page="imports"] .tab-badge');assert(importBadge&&!importBadge.hidden);assert(!q('#import-error-note').hidden);assert(q('#import-error-note').textContent.includes('Dòng kiểm thử'));
-q('#import-error-note button').click();assert(importBadge.hidden);assert(q('#import-error-note').hidden);
-vm.runInContext("Operation.fail('Sự cố chưa xác định.');",ctx);assert(importBadge.hidden,'generic client errors do not create import notifications');
+const importBadge=q('button[data-console-page="imports"] .tab-badge');assert(importBadge&&!importBadge.hidden);assert(!q('#import-error-note'),'no duplicate wide warning or acknowledgement button');
+vm.runInContext("Operation.clear();Operation.fail('Sự cố chưa xác định.');",ctx);assert(importBadge.hidden,'generic client errors do not create import notifications');
 vm.runInContext('Operation.clear()',ctx);
 // Internal footer and dismissal of the account menu are independent of data edits.
 assert.equal(q('.sc-global-credit').textContent,'Powered by DatBT13');
@@ -91,6 +90,29 @@ q('#sc-edit-name').value='Staff Updated';await q('#sc-edit-account-form').reques
 const updatedAccount=requests.find(r=>r.action==='updateUser');assert(updatedAccount);assert.equal(updatedAccount.p.displayName,'Staff Updated');assert.equal(updatedAccount.p.permissions.editFollow,true);assert.equal(q('#sc-edit-account').open,false);
 
 console.log('PASS inline internal footer, outside account-menu dismissal and staff permission visibility (DOM fixture).');
+// A successful HTTP response without the matching committed receipt is never a save confirmation.
+await ctx.RegistryCloud.persist();
+const normalFetch=ctx.fetch;
+vm.runInContext("archive.registry.students.TEST001.name='Thay đổi A';save()",ctx);
+ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save')return {json:async()=>({ok:true,data:{revision:body.p.revision+1}})};return normalFetch(url,options)};
+await assert.rejects(()=>ctx.RegistryCloud.persist(),/xác nhận/);assert(ctx.RegistryCloud.hasUnsaved);assert(q('#save-retry-note'));
+// Commit may succeed while its response is lost; retry the identical request, then save newer edits.
+vm.runInContext("archive.registry.students.TEST001.name='Thay đổi B';save()",ctx);
+let lostRequest;
+ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save'){lostRequest=body.p;await normalFetch(url,options);throw Error('network response lost')}return normalFetch(url,options)};
+await assert.rejects(()=>ctx.RegistryCloud.persist());assert(ctx.RegistryCloud.hasUnsaved);
+ctx.fetch=normalFetch;await ctx.RegistryCloud.persist();assert(!ctx.RegistryCloud.hasUnsaved);assert(!q('#save-retry-note'));assert.equal(saved.registry.students.TEST001.name,'Thay đổi B');
+assert(requests.filter(r=>r.action==='save'&&r.p.requestId===lostRequest.requestId).length>=2,'lost response retries the same request ID');
+// Concurrent save callers share one flight, and edits made in flight are acknowledged separately.
+let releaseSave,saveCalls=0;ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save'&&++saveCalls===1)await new Promise(r=>releaseSave=r);return normalFetch(url,options)};
+vm.runInContext("archive.registry.students.TEST001.name='Thay đổi C';save()",ctx);
+const saveOne=ctx.RegistryCloud.persist(),saveTwo=ctx.RegistryCloud.persist();await new Promise(r=>setTimeout(r,0));assert.equal(saveCalls,1);
+vm.runInContext("archive.registry.students.TEST001.name='Thay đổi D';save()",ctx);releaseSave();await Promise.all([saveOne,saveTwo]);assert.equal(saveCalls,2);assert.equal(saved.registry.students.TEST001.name,'Thay đổi D');assert(!ctx.RegistryCloud.hasUnsaved);ctx.fetch=normalFetch;
+// Permission denied disables only the unavailable save method, without an automatic download.
+ctx.showSaveFilePicker=async()=>{const e=Error('Permission denied');e.name='NotAllowedError';throw e};
+pending=ctx.StudentFileSave.save('permission.xlsx','bytes','application/octet-stream');const beforeDownloads=downloads.length;await q('.sc-save-dialog [data-save="picker"]').click();assert(q('.sc-save-dialog [data-save="picker"]').hidden);assert(q('.sc-save-dialog .sc-save-error').textContent.includes('Tải qua trình duyệt'));assert.equal(downloads.length,beforeDownloads);
+const deniedCancel=assert.rejects(pending,{name:'AbortError'});q('.sc-save-dialog [data-save="cancel"]').click();await deniedCancel;
+console.log('PASS no false save from malformed receipt/lost response/concurrent edits; save-picker denial has explicit fallback.');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};

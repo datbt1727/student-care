@@ -6,3 +6,5 @@ test('server gates writes and pending sessions',()=>{const src=read('api/rpc.mjs
 test('remember choice never sends password to browser storage',()=>{const source=read('web/source.html'),src=source.slice(source.indexOf('/* Transport only'),source.indexOf('</script>',source.indexOf('/* Transport only')));assert(src.includes('auth-remember'));assert(src.includes("autocomplete='current-password'"));assert(src.includes("Object.defineProperty(window,'localStorage'"));assert(!src.includes('localStorage.setItem'));assert(src.includes("credentials:'same-origin'"));});
 
 test('deployment pins one region close to the configured Singapore database',()=>{const c=JSON.parse(read('vercel.json'));assert.deepEqual(c.regions,['sin1']);});
+
+test('backup schedule targets midnight Vietnam and footer remains in page flow',()=>{const src=read('web/source.html'),config=JSON.parse(read('vercel.json'));assert.equal(config.crons[0].schedule,'0 17 * * *');assert(src.includes('margin-top:auto!important;padding-top:24px!important'));assert(!src.includes("dismiss.textContent='Đã xem'"));});
