@@ -28,6 +28,16 @@ assert(doc.documentElement.classList.contains('sc-auth-open'));assert(q('.worksp
 q('#auth-username').value='admin.test';q('#auth-password').value='Password#1234';q('#auth-totp').value='123456';q('#auth-remember').checked=true;
 await q('#login-form').requestSubmit();
 assert(q('#auth-gate').hidden,q('#auth-message').textContent);
+const vnToday=ctx.StudentDates.today();
+assert.equal(ctx.StudentDates.today(new Date('2026-10-23T16:59:59Z')),'2026-10-23');
+assert.equal(ctx.StudentDates.today(new Date('2026-10-23T17:00:00Z')),'2026-10-24');
+for(const id of ['asof','import-date','changed-date','birthday-date','registry-effective'])assert.equal(q('#'+id).value,vnToday,id+' defaults to current Vietnam date');
+assert.equal(saved.terms['2026-FALL'].asof,'2026-10-23','loading does not automatically save over stored data');
+q('#import-date').value='2026-10-20';q('#changed-date').value='2026-10-21';q('#open-student-exports').click();q('#open-student-exports').click();
+assert.equal(q('#changed-date').value,'2026-10-21','opening report does not overwrite a manual date');
+q('#asof').value='2026-10-22';q('#asof').onchange();vm.runInContext('render()',ctx);
+assert.equal(q('#asof').value,'2026-10-22');assert.equal(q('#import-date').value,'2026-10-20');
+console.log('PASS Vietnam midnight defaults and manual dates preserved across renders/tab visits.');
 const login=requests.find(r=>r.action==='login');assert.equal(login.p.password,'Password#1234');assert.equal(login.p.remember,true);assert.equal(login.p.totp,'123456');assert(!login.p.verifier);assert.equal(login.p.includeWorkspace,true);assert(!requests.some(r=>r.action==='load'),'inline authenticated workspace avoids the second load request');
 q('#registry-paste').value='MSSV\tHọ tên\tEmail\tMentor\nTEST001\tSinh viên thử\ttest@example.test\tCB01';await q('#registry-check').click();assert(q('#import-review').open);await q('#review-confirm').click();
 assert(saved.registry.students.TEST001);assert(requests.some(r=>r.action==='save'&&r.headers['X-SC-CSRF']==='test-csrf'));
@@ -63,6 +73,8 @@ vm.runInContext("Operation.fail('Sự cố chưa xác định.');",ctx);assert(i
 vm.runInContext('Operation.clear()',ctx);
 // Internal footer and dismissal of the account menu are independent of data edits.
 assert.equal(q('.sc-global-credit').textContent,'Powered by DatBT13');
+assert.equal(q('.sc-global-credit').parentElement,q('.workspace-frame>main'),'credit follows page content inside main');
+assert(html.includes('position:static!important;text-align:center!important;background:transparent!important;border:0!important;box-shadow:none!important'));
 const accountMenu=q('.account-menu');assert(accountMenu);accountMenu.open=true;
 ctx.AccountMenuOutside({target:accountMenu.querySelector('summary')});assert(accountMenu.open);
 ctx.AccountMenuOutside({target:doc.body});assert.equal(accountMenu.open,false);
@@ -78,7 +90,7 @@ assert(q('#sc-edit-account').open);assert.equal(q('#sc-edit-name').value,'Staff'
 q('#sc-edit-name').value='Staff Updated';await q('#sc-edit-account-form').requestSubmit();
 const updatedAccount=requests.find(r=>r.action==='updateUser');assert(updatedAccount);assert.equal(updatedAccount.p.displayName,'Staff Updated');assert.equal(updatedAccount.p.permissions.editFollow,true);assert.equal(q('#sc-edit-account').open,false);
 
-console.log('PASS fixed internal footer, outside account-menu dismissal and staff permission visibility (DOM fixture).');
+console.log('PASS inline internal footer, outside account-menu dismissal and staff permission visibility (DOM fixture).');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
