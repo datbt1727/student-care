@@ -21,7 +21,7 @@ const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);reque
 switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'sync':data=syncWorkspace?{archive:structuredClone(syncWorkspace),revision:p.revision+1,changed:true,user}:{revision:p.revision,changed:false,user};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
 const observers=[];
-const ctx={MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
+const ctx={setImmediate,clearImmediate,MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
 ctx.window=ctx;vm.createContext(ctx);for(const [i,script]of scripts.entries()){try{vm.runInContext(script,ctx)}catch(e){console.error('SCRIPT',i);throw e;}}
 const q=s=>doc.querySelector(s);
 (async()=>{
@@ -127,6 +127,46 @@ ctx.showSaveFilePicker=async()=>{const e=Error('Permission denied');e.name='NotA
 pending=ctx.StudentFileSave.save('permission.xlsx','bytes','application/octet-stream');const beforeDownloads=downloads.length;await q('.sc-save-dialog [data-save="picker"]').click();assert(q('.sc-save-dialog [data-save="picker"]').hidden);assert(q('.sc-save-dialog .sc-save-error').textContent.includes('Tải qua trình duyệt'));assert.equal(downloads.length,beforeDownloads);
 const deniedCancel=assert.rejects(pending,{name:'AbortError'});q('.sc-save-dialog [data-save="cancel"]').click();await deniedCancel;
 console.log('PASS no false save from malformed receipt/lost response/concurrent edits; save-picker denial has explicit fallback.');
+// Revised semester import: retired columns are optional/ignored, and preflight never writes.
+const termHeads=['ID','Full name','Trạng thái','Level','Lớp','Ngày','Tháng','Năm','Ngày sinh','Email'];
+const termRow=['NEW001','Sinh viên mới','HD',1,'IT01',29,2,2004,'29/02/2004','new@example.test'];
+const catalog={name:'Môn',rows:[['Mã môn','Tên môn'],['COMP101','Lập trình']]};
+const termSheets=row=>[{name:'Sinh viên',rows:[termHeads,row]},catalog];
+const parsedTerm=ctx.RosterData.parseTerm(termSheets(termRow));assert.equal(parsedTerm.students[0].birthday,'2004-02-29');
+const retired=['Ngày nhập học chính thức','Thời gian đã học','Niên khóa','Thời gian dự kiến TN'];
+const oldSheets=[{name:'Sinh viên',rows:[[...termHeads,...retired],[...termRow,'không cần đọc','cũ','cũ','sai ngày cũng bỏ qua']]},catalog];
+const parsedOld=ctx.RosterData.parseTerm(oldSheets);
+for(const key of ['enrollmentDate','studiedDuration','cohortYear','expectedGraduation'])assert(!(key in parsedOld.students[0]));
+const preserved=structuredClone(saved);preserved.terms['2026-FALL'].students.push({...parsedTerm.students[0],enrollmentDate:'2020-01-01',studiedDuration:'2 năm',cohortYear:'2020',expectedGraduation:'2028-01-01'});
+ctx.RosterData.applyTerm(preserved,'2026-FALL',parsedTerm,'test.xlsx');
+assert.equal(preserved.terms['2026-FALL'].students.find(x=>x.id==='NEW001').studiedDuration,'2 năm');
+assert.equal(preserved.terms['2026-FALL'].students.find(x=>x.id==='NEW001').expectedGraduation,'2028-01-01');
+for(const [column,value]of [[0,'BAD ID'],[1,''],[2,''],[3,'1.5'],[8,'31/02/2004'],[9,'bad-email']]){const row=[...termRow];row[column]=value;assert.throws(()=>ctx.RosterData.parseTerm(termSheets(row)));}
+const badSplit=[...termRow];badSplit[5]=31;badSplit[6]=4;badSplit[8]='';assert.throws(()=>ctx.RosterData.parseTerm(termSheets(badSplit)));
+const reviewed=ctx.ImportReview.inspect([{name:'SV',rows:[termHeads,termRow,termRow]},catalog],'term');
+assert(reviewed.reports.every(r=>r.errors.length),'duplicate students block confirmation');
+assert(ctx.ImportReview.inspect(oldSheets,'term').reports[0].warnings.some(w=>w.includes('4 cột')));
+assert(ctx.ImportReview.inspect([termSheets(termRow)[0],{name:'Môn',rows:[['Mã môn','Tên môn'],['COMP101','']]}],'term').courseReports.some(r=>r.errors.length));
+const wrongTermHeads=termHeads.map(v=>v==='Trạng thái'?'Trạng thái SPRING 2027':v);assert(ctx.ImportReview.inspect([{name:'SV',rows:[wrongTermHeads,termRow]},catalog],'term','2026-FALL').reports[0].errors.some(x=>x.includes('học kỳ')));
+const originalMake=vm.runInContext('makeXlsx',ctx),originalDownload=vm.runInContext('download',ctx);
+vm.runInContext('makeXlsx=async sheets=>{window.capturedTermSheets=sheets;return new Uint8Array()};download=async()=>({method:"test"})',ctx);
+await q('#registry-term-template').click();
+const template=ctx.capturedTermSheets;assert.equal(template.length,2);assert.equal(template[0].rows[2].length,13);assert.equal(template[0].rows[1].length,13);
+for(const label of retired)assert(!template[0].rows[2].includes(label));
+ctx.makeXlsx=originalMake;ctx.download=originalDownload;
+const templateBytes=await originalMake(template),templateZip=await ctx.JSZip.loadAsync(templateBytes);
+const templateXML=await templateZip.file('xl/worksheets/sheet1.xml').async('string');
+assert(templateXML.includes('Full name'));for(const label of retired)assert(!templateXML.includes(label));
+const originalReader=vm.runInContext('readXlsx',ctx);ctx.testTermSheets=termSheets(termRow);vm.runInContext('readXlsx=async()=>window.testTermSheets',ctx);
+const uploadFile={name:'term.xlsx',size:100,arrayBuffer:async()=>new ArrayBuffer(0)};q('#registry-term-file').files=[uploadFile];q('#registry-term-import').value='2026-FALL';
+const savesBeforeReview=requests.filter(r=>r.action==='save').length;
+await q('#registry-term-upload').click();assert(q('#import-review').open);assert(!q('#review-confirm').disabled);
+assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeReview);
+q('#registry-term-file').files=[{...uploadFile}];await q('#review-confirm').click();
+assert(q('#review-guidance').textContent.includes('File đã thay đổi'));
+assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeReview,'changed file cannot bypass revalidation');
+q('#review-cancel').click();q('#registry-term-file').files=[];ctx.readXlsx=originalReader;ctx.Operation.clear();
+console.log('PASS reduced semester template XLSX, retired-field preservation, row validation, preview gate and changed-file guard.');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
