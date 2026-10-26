@@ -10,7 +10,7 @@ function select(root,s){if(s.includes(','))return [...new Set(s.split(',').flatM
 
 N.prototype.before=function(...nodes){for(const n of nodes)this.parentElement.insertBefore(n,this)};
 const html=fs.readFileSync(root+'/web/source.html','utf8'),scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
-const doc=new N('document');doc.append(...parse(html.replace(/<script>[\s\S]*?<\/script>/g,'').replace(/<style>[\s\S]*?<\/style>/g,'')));doc.documentElement=doc.querySelector('html');doc.body=doc.querySelector('body');doc.createElement=t=>new N(t);
+const doc=new N('document');doc.append(...parse(html.replace(/<script>[\s\S]*?<\/script>/g,'').replace(/<style>[\s\S]*?<\/style>/g,'')));doc.documentElement=doc.querySelector('html');doc.body=doc.querySelector('body');doc.createElement=t=>new N(t);doc.getElementById=id=>doc.querySelector('#'+id);
 const docEvents={};doc.addEventListener=(name,fn)=>{(docEvents[name]??=[]).push(fn)};N.prototype.matches=function(s){return s.split(',').some(part=>match(this,part.trim()))};
 const downloads=[],storage=new Map(),requests=[];
 let saved={version:2,active:'2026-FALL',terms:{'2026-FALL':{termId:'2026-FALL',termLabel:'FALL 2026',asof:'2026-10-23',limit:25,early:20,students:[],records:[],courseCatalog:[],notes:{},dailyFollow:{},log:[],importFiles:[]}},registry:{students:{},events:[],seen:{}},studentServices:{certificates:[],insurance:[],audit:[]}};
@@ -21,7 +21,7 @@ const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);reque
 switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'sync':data=syncWorkspace?{archive:structuredClone(syncWorkspace),revision:p.revision+1,changed:true,user}:{revision:p.revision,changed:false,user};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
 const observers=[];
-const ctx={setImmediate,clearImmediate,MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
+const ctx={setImmediate,clearImmediate,MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500&&ms!==1000&&ms!==3000)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
 ctx.window=ctx;vm.createContext(ctx);for(const [i,script]of scripts.entries()){try{vm.runInContext(script,ctx)}catch(e){console.error('SCRIPT',i);throw e;}}
 const q=s=>doc.querySelector(s);
 (async()=>{
@@ -39,6 +39,7 @@ q('#import-date').value='2026-10-20';q('#changed-date').value='2026-10-21';q('#o
 assert.equal(q('#changed-date').value,'2026-10-21','opening report does not overwrite a manual date');
 q('#asof').value='2026-10-22';q('#asof').onchange();vm.runInContext('render()',ctx);
 assert.equal(q('#asof').value,'2026-10-22');assert.equal(q('#import-date').value,'2026-10-20');
+assert(!ctx.RegistryCloud.hasUnsaved,'changing the view date does not create a save');
 console.log('PASS Vietnam midnight defaults and manual dates preserved across renders/tab visits.');
 const login=requests.find(r=>r.action==='login');assert.equal(login.p.password,'Password#1234');assert.equal(login.p.remember,true);assert.equal(login.p.totp,'123456');assert(!login.p.verifier);assert.equal(login.p.includeWorkspace,true);assert(!requests.some(r=>r.action==='load'),'inline authenticated workspace avoids the second load request');
 // A second account adds a semester; polling updates the picker without reloading or saving it back.
@@ -49,6 +50,7 @@ assert(q('#term-switch').innerHTML.includes('SPRING 2027'),'new semester from an
 assert.equal(q('#term-switch').value,'2026-FALL','current semester stays selected');
 assert.equal(q('#import-date').value,'2026-10-20','manual import date stays intact');
 assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeSync,'remote render never saves over server data');
+syncWorkspace.terms['2026-FALL'].rosterSource='Dữ liệu mới nhất để xuất';await ctx.RegistryCloud.prepareReport();assert.equal(vm.runInContext('state.rosterSource',ctx),'Dữ liệu mới nhất để xuất');assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeSync,'report refresh is read-only');
 const beforeFileGuard=requests.filter(r=>r.action==='sync').length;q('#attendance-files').files=[{name:'draft.xlsx'}];
 await ctx.StudentLiveSync.check();assert.equal(requests.filter(r=>r.action==='sync').length,beforeFileGuard,'selected import file blocks refresh');q('#attendance-files').files=[];const draft=q('#registry-paste');draft.value='Ghi chú đang nhập chưa lưu';for(const fn of docEvents.input||[])fn({target:draft});await ctx.StudentLiveSync.check();assert.equal(draft.value,'Ghi chú đang nhập chưa lưu');assert.equal(requests.filter(r=>r.action==='sync').length,beforeFileGuard,'typed draft blocks refresh');draft.value='';syncWorkspace=null;
 console.log('PASS cross-account semester sync preserves selection/manual dates and does not write; import selection blocks refresh.');
@@ -107,6 +109,10 @@ console.log('PASS inline internal footer, outside account-menu dismissal and sta
 // A successful HTTP response without the matching committed receipt is never a save confirmation.
 await ctx.RegistryCloud.persist();
 const normalFetch=ctx.fetch;
+vm.runInContext("archive.registry.students.TEST001.name='Tự khôi phục kết nối';save()",ctx);
+const retriedBodies=[];ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save'){retriedBodies.push(options.body);const result=await normalFetch(url,options);if(retriedBodies.length===1)throw TypeError('lost response after commit');return result;}return normalFetch(url,options);};
+await ctx.RegistryCloud.persist();assert.equal(retriedBodies.length,2);assert.equal(retriedBodies[0],retriedBodies[1]);assert(!ctx.RegistryCloud.hasUnsaved);assert.equal(saved.registry.students.TEST001.name,'Tự khôi phục kết nối');ctx.fetch=normalFetch;
+console.log('PASS a lost save response recovers automatically with the identical request and a verified receipt.');
 vm.runInContext("archive.registry.students.TEST001.name='Thay đổi A';save()",ctx);
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save')return {json:async()=>({ok:true,data:{revision:body.p.revision+1}})};return normalFetch(url,options)};
 await assert.rejects(()=>ctx.RegistryCloud.persist(),/xác nhận/);assert(ctx.RegistryCloud.hasUnsaved);assert(q('#save-retry-note'));
@@ -182,6 +188,27 @@ for(const field of ['enrollmentDate','studiedDuration','cohortYear','expectedGra
 assert.equal(vm.runInContext('JSON.stringify(archive)',ctx),archiveWithRetired,'opening profile does not delete stored historical fields');
 q('#registry-history').close();ctx.profileArchiveBefore=profileArchiveBefore;vm.runInContext('archive=JSON.parse(window.profileArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS retired fields absent from profile/editor/extra/term-history while stored legacy data remains intact.');
+// Simulate another authenticated tab saving between the local load and save.
+q('#profile-editor').open=false;const concurrentFetch=ctx.fetch;
+async function conflictServer(remoteChange,localChange){const remote=vm.runInContext('JSON.parse(JSON.stringify(archive))',ctx);remoteChange(remote);vm.runInContext(localChange,ctx);let staleRevision=null;ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save'){staleRevision??=body.p.revision;if(body.p.revision===staleRevision)return {json:async()=>({ok:false,code:'409',error:'Dữ liệu đã được người khác thay đổi.'})};}if(body.action==='sync')return {json:async()=>({ok:true,data:{changed:true,revision:staleRevision+1,archive:structuredClone(remote),user}})};return concurrentFetch(url,options);};}
+await conflictServer(a=>a.registry.students.TEST001.email='peer@example.test',"archive.registry.students.TEST001.name='Sửa độc lập';save()");
+q('#profile-editor').open=true;await assert.rejects(()=>ctx.RegistryCloud.persist(),/Đang mở/);assert(ctx.RegistryCloud.hasUnsaved);q('#profile-editor').open=false;await ctx.RegistryCloud.persist();assert(!ctx.RegistryCloud.hasUnsaved);assert.equal(saved.registry.students.TEST001.name,'Sửa độc lập');assert.equal(saved.registry.students.TEST001.email,'peer@example.test');assert(!q('.sc-merge-dialog'));
+ctx.fetch=concurrentFetch;
+await conflictServer(a=>{a.registry.students.TEST001.name='Tên trên máy chủ';a.registry.students.TEST001.email='peer2@example.test'},"archive.registry.students.TEST001.name='Tên tôi chọn';save()");
+const manualMerge=ctx.RegistryCloud.persist();await new Promise(r=>setTimeout(r,0));assert(q('.sc-merge-dialog').open);assert(ctx.RegistryCloud.hasUnsaved);assert(q('[data-merge="apply"]').disabled);
+for(const select of q('.sc-merge-dialog').querySelectorAll('select')){select.value='local';select.onchange();}
+await q('[data-merge="apply"]').click();await manualMerge;assert.equal(saved.registry.students.TEST001.name,'Tên tôi chọn');assert.equal(saved.registry.students.TEST001.email,'peer2@example.test');assert(q('#cloud-error').hidden,'old conflict warning clears only after a confirmed save');ctx.fetch=concurrentFetch;
+await conflictServer(a=>a.registry.students.TEST001.name='Tên khác',"archive.registry.students.TEST001.name='Giữ bản nhập';save()");
+const cancelledMerge=ctx.RegistryCloud.persist();await new Promise(r=>setTimeout(r,0));const cancelExpected=assert.rejects(cancelledMerge,/giữ nguyên|giữ/);q('[data-merge="cancel"]').click();await cancelExpected;assert(ctx.RegistryCloud.hasUnsaved);assert.equal(vm.runInContext('archive.registry.students.TEST001.name',ctx),'Giữ bản nhập');
+// Retry presents the conflict again rather than overwriting the server.
+const resolvedMerge=ctx.RegistryCloud.persist();await new Promise(r=>setTimeout(r,0));for(const select of q('.sc-merge-dialog').querySelectorAll('select')){select.value='remote';select.onchange();}q('[data-merge="apply"]').click();await resolvedMerge;assert.equal(saved.registry.students.TEST001.name,'Tên khác');ctx.fetch=concurrentFetch;
+const writesBeforeView=requests.filter(r=>r.action==='save').length;q('#term-switch').value='2027-SPRING';q('#term-switch').onchange();assert(!ctx.RegistryCloud.hasUnsaved);assert.equal(requests.filter(r=>r.action==='save').length,writesBeforeView);q('#term-switch').value='2026-FALL';q('#term-switch').onchange();
+// A new semester remains a real write.
+q('#new-year').value='2028';q('#new-term').value='SPR';q('#create-term').click();assert(ctx.RegistryCloud.hasUnsaved);await ctx.RegistryCloud.persist();assert(saved.terms['2028-SPR']);q('#term-switch').value='2026-FALL';q('#term-switch').onchange();
+// Refresh for export must not overwrite edits made while the read is in flight.
+let releaseReport;ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='sync'){await new Promise(r=>releaseReport=r);return {json:async()=>({ok:true,data:{changed:false,revision:body.p.revision,user}})};}return concurrentFetch(url,options);};
+const reportRead=ctx.RegistryCloud.prepareReport();await new Promise(r=>setTimeout(r,0));vm.runInContext("archive.registry.students.TEST001.name='Đang gõ khi xuất';save()",ctx);releaseReport();await assert.rejects(reportRead,/vừa được chỉnh sửa/);assert.equal(vm.runInContext('archive.registry.students.TEST001.name',ctx),'Đang gõ khi xuất');ctx.fetch=concurrentFetch;await ctx.RegistryCloud.persist();ctx.Operation.clear();
+console.log('PASS independent concurrent edits merge; same-field conflicts require choice; cancel preserves drafts; view-only navigation never saves; report race preserves edits.');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
