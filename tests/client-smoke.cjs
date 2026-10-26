@@ -167,6 +167,21 @@ assert(q('#review-guidance').textContent.includes('File đã thay đổi'));
 assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeReview,'changed file cannot bypass revalidation');
 q('#review-cancel').click();q('#registry-term-file').files=[];ctx.readXlsx=originalReader;ctx.Operation.clear();
 console.log('PASS reduced semester template XLSX, retired-field preservation, row validation, preview gate and changed-file guard.');
+// Retired training fields must disappear from every profile view without deleting stored values.
+const profileArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx);
+vm.runInContext(`Object.assign(archive.registry.students.TEST001,{enrollmentDate:'2020-01-01',studiedDuration:'2 năm',cohortYear:'2020',expectedGraduation:'2028-01-01',extra:{'Niên khóa':'2020','Ngày nhập học chính thức':'2020-01-01','Thời gian đã học':'2 năm','Thời gian dự kiến TN':'2028-01-01','Ghi chú khác':'Giữ thông tin này'}});
+if(!state.students.some(s=>s.id==='TEST001'))state.students.push({...archive.registry.students.TEST001,level:1});
+state.trainingAudit=[{id:'TEST001',at:'2026-10-26',source:'test.xlsx',changes:{studiedDuration:{before:'1 năm',after:'2 năm'},level:{before:0,after:1}}}];
+archive.registry.events.push({id:'TEST001',type:'profile_update',before:{cohortYear:'2019'},after:{cohortYear:'2020',name:'Sinh viên thử'},recordedAt:'2026-10-26'});
+`,ctx);
+vm.runInContext('StudentRegistry.ensure(archive);StudentServices.hydrate(archive)',ctx);const archiveWithRetired=vm.runInContext('JSON.stringify(archive)',ctx);ctx.showStudentHistory('TEST001');
+const profileText=['history-pane-profile','history-pane-events','history-pane-terms','history-pane-term-data'].map(id=>q('#'+id)?.textContent||'').join(' ');
+for(const label of ['Niên khóa','Ngày nhập học chính thức','Thời gian đã học','Dự kiến tốt nghiệp','Ngày dự kiến tốt nghiệp','Thời gian dự kiến TN','cohortYear','studiedDuration','expectedGraduation','enrollmentDate'])assert(!profileText.includes(label),label+' hidden in profile/history');
+assert(profileText.includes('Ghi chú khác'));assert(profileText.includes('Level'));
+for(const field of ['enrollmentDate','studiedDuration','cohortYear','expectedGraduation'])assert(!q('#profile-'+field),'removed editor field '+field);
+assert.equal(vm.runInContext('JSON.stringify(archive)',ctx),archiveWithRetired,'opening profile does not delete stored historical fields');
+q('#registry-history').close();ctx.profileArchiveBefore=profileArchiveBefore;vm.runInContext('archive=JSON.parse(window.profileArchiveBefore);state=archive.terms[archive.active];render()',ctx);
+console.log('PASS retired fields absent from profile/editor/extra/term-history while stored legacy data remains intact.');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
