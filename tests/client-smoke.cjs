@@ -261,8 +261,27 @@ let releaseQuick;ctx.fetch=async(url,options)=>{const body=JSON.parse(options.bo
 quick=quickInput('QOVER','M1');quick.value='Bản gửi trước';quick.oninput();const quickFlight=quickSave(quick).click();await new Promise(r=>setTimeout(r,0));quick=quickInput('QOVER','M1');quick.value='Bản nhập tiếp';quick.oninput();releaseQuick();await quickFlight;assert.equal(quickInput('QOVER','M1').value,'Bản nhập tiếp');ctx.fetch=quickFetch;await quickSave(quickInput('QOVER','M1')).click();assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER').note",ctx),'Bản nhập tiếp');
 // No course data: store an internal general note on the correct student.
 q('#queue-course').value='';q('#queue-course').onchange();q('#queue-severity').value='missing';q('#queue-severity').onchange();quick=quickInput('QMISSING','');quick.value='Ghi chú chung nội bộ';quick.oninput();await quickSave(quick).click();assert.equal(vm.runInContext("state.notes.QMISSING.at(-1).text",ctx),'Ghi chú chung nội bộ');
+// Batch save includes hidden drafts in exactly one confirmed workspace request.
+q('#queue-severity').value='all';q('#queue-severity').onchange();
+for(const [id,subject,text]of [['QOVER','M1','Batch A'],['QNEAR','M2','Batch B']]){const input=quickInput(id,subject);input.value=text;input.oninput();}
+assert(q('#queue-save-all').textContent.includes('(2)'));
+q('#queue-course').value='M1';q('#queue-course').onchange();
+const beforeBatch=requests.filter(r=>r.action==='save').length;
+await q('#queue-save-all').click();
+assert.equal(requests.filter(r=>r.action==='save').length,beforeBatch+1);
+for(const [id,text]of [['QOVER','Batch A'],['QNEAR','Batch B']])assert.equal(vm.runInContext('Object.values(state.dailyFollow).find(f=>f.id==='+JSON.stringify(id)+').note',ctx),text);
+assert(q('#queue-batch-status').textContent.includes('2/2'));assert(q('#queue-save-all').disabled);
+// Malformed receipt retains all drafts, and retry does not duplicate audit entries.
+for(const [id,subject,text]of [['QOVER','M1','Retry batch A'],['QNEAR','M2','Retry batch B']]){q('#queue-course').value=subject;q('#queue-course').onchange();const input=quickInput(id,subject);input.value=text;input.oninput();}
+ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save')return {json:async()=>({ok:true,data:{revision:body.p.revision+1}})};return quickFetch(url,options);};
+await q('#queue-save-all').click();assert(ctx.RegistryCloud.hasUnsaved);assert(q('#queue-save-all').textContent.includes('(2)'));
+const batchAudit=vm.runInContext('state.followAudit.length',ctx);ctx.fetch=quickFetch;await q('#queue-save-all').click();
+assert.equal(vm.runInContext('state.followAudit.length',ctx),batchAudit);assert(!ctx.RegistryCloud.hasUnsaved);
+assert(q('#queue-batch-status').textContent.includes('2/2'));
+q('#queue-course').value='';q('#queue-course').onchange();
+console.log('PASS batch notes save hidden drafts in one request; malformed receipts retain all drafts and retry never duplicates audit.');
 // Read-only staff cannot invoke a save even by directly calling the handler.
-q('#queue-severity').value='all';q('#queue-severity').onchange();ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();quick=quickInput('QOVER','M1');assert(quickSave(quick).disabled);const readOnlyWrites=requests.filter(r=>r.action==='save').length;await quickSave(quick).onclick();assert.equal(requests.filter(r=>r.action==='save').length,readOnlyWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
+q('#queue-severity').value='all';q('#queue-severity').onchange();ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();quick=quickInput('QOVER','M1');assert(quickSave(quick).disabled);assert(q('#queue-save-all').disabled);await q('#queue-save-all').onclick();const readOnlyWrites=requests.filter(r=>r.action==='save').length;await quickSave(quick).onclick();assert.equal(requests.filter(r=>r.action==='save').length,readOnlyWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
 console.log('PASS course+severity filtering, inline private/general notes, retry deduplication, in-flight edits and read-only guards.');
 ctx.queueArchiveBefore=queueArchiveBefore;vm.runInContext('archive=JSON.parse(window.queueArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS warning-level queue filters preserve totals and selection without writing workspace data.');
