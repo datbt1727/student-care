@@ -174,6 +174,10 @@ assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeReview,'cha
 q('#review-cancel').click();q('#registry-term-file').files=[];ctx.readXlsx=originalReader;ctx.Operation.clear();
 console.log('PASS reduced semester template XLSX, retired-field preservation, row validation, preview gate and changed-file guard.');
 
+// Daily changed-absence report uses exact inclusive 10%-25%, never rounded labels.
+const rangeRows=vm.runInContext(`(()=>{const values=[9.9,10,12.5,24.4,25,25.01,60],students=values.map((v,i)=>({id:'R'+i,name:'Range '+v})),records=values.flatMap((v,i)=>[{id:'R'+i,subject:'M',group:'G',date:'2026-10-26',absent:0,slots:10000},{id:'R'+i,subject:'M',group:'G',date:'2026-10-27',absent:Math.round(v*100),slots:10000}]);return StudentServices.changed({terms:{T:{students,records}}},'T','2026-10-27').rows;})()`,ctx);
+assert.deepEqual(Array.from(rangeRows,r=>r[4].value),[10,12.5,24.4,25]);
+console.log('PASS daily changed-absence report includes exact 10% and 25%, excludes below/above before rounding.');
 // Verify real QA/term-summary XLSX bytes, including shifted course/date columns.
 const qaArchiveSnapshot=vm.runInContext('JSON.stringify(archive)',ctx);
 const qaStateSnapshot=vm.runInContext('JSON.stringify(state)',ctx);
