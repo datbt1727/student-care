@@ -173,6 +173,25 @@ assert(q('#review-guidance').textContent.includes('File đã thay đổi'));
 assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeReview,'changed file cannot bypass revalidation');
 q('#review-cancel').click();q('#registry-term-file').files=[];ctx.readXlsx=originalReader;ctx.Operation.clear();
 console.log('PASS reduced semester template XLSX, retired-field preservation, row validation, preview gate and changed-file guard.');
+
+// Verify real QA/term-summary XLSX bytes, including shifted course/date columns.
+const qaArchiveSnapshot=vm.runInContext('JSON.stringify(archive)',ctx);
+const qaStateSnapshot=vm.runInContext('JSON.stringify(state)',ctx);
+vm.runInContext(`state.students=[{id:'EXPORT01',name:'Export Student',cohort:'CLASS-A',email:'export@example.test',birthday:'2004-02-03',gender:'Nam',ethnicity:'Kinh',enrollmentDate:'RETIRED_ENROLL',studiedDuration:'RETIRED_DURATION',cohortYear:'RETIRED_COHORT',expectedGraduation:'RETIRED_GRAD'}];state.courseCatalog=[{subject:'TEST101',name:'Test Course'}];state.records=[{id:'EXPORT01',subject:'TEST101',group:'G',date:'2026-10-25',absent:2,slots:10},{id:'EXPORT01',subject:'TEST101',group:'G',date:'2026-10-26',absent:244,slots:1000}];state.asof='2026-10-26';state.dailyFollow={};`,ctx);
+const qaSheets=vm.runInContext('qaFollowTable()',ctx);
+assert.equal(qaSheets[0].profileColumns,14);assert.equal(qaSheets[0].courseColumns[0],14);
+assert.equal(qaSheets[0].rows[3][5],'CLASS-A');assert.equal(qaSheets[0].rows[3][12],'export@example.test');
+assert.equal(qaSheets[0].rows[3][15].value,20);assert.equal(qaSheets[0].rows[3][17].value,24.4);
+const qaBytes=await originalMake(qaSheets),qaZip=await ctx.JSZip.loadAsync(qaBytes);
+const qaXML=await qaZip.file('xl/worksheets/sheet1.xml').async('string');
+for(const label of [...retired,'RETIRED_ENROLL','RETIRED_DURATION','RETIRED_COHORT','RETIRED_GRAD'])assert(!qaXML.includes(label));
+assert(qaXML.includes('O1:S1'));assert(qaXML.includes('xSplit="3"'));assert(!qaXML.includes('undefined'));
+const legacyBytes=await originalMake([{name:'Legacy',rows:[['MSSV',...retired,'Email'],['EXPORT01','a','b','c','d','export@example.test']],headerRow:1}]);
+const legacyZip=await ctx.JSZip.loadAsync(legacyBytes),legacyXML=await legacyZip.file('xl/worksheets/sheet1.xml').async('string');
+for(const label of retired)assert(!legacyXML.includes(label));assert(legacyXML.includes('export@example.test'));assert(/r="B2"[^>]*t="inlineStr"/.test(legacyXML));assert(!legacyXML.includes('r="F2"'));
+ctx.restoreQAState=JSON.parse(qaStateSnapshot);vm.runInContext('Object.assign(state,window.restoreQAState)',ctx);
+assert.equal(vm.runInContext('JSON.stringify(archive)',ctx),qaArchiveSnapshot);
+console.log('PASS real QA/summary XLSX has 14 profile columns, aligned course percentages, and no retired fields; legacy export guard preserves stored archive.');
 // Retired training fields must disappear from every profile view without deleting stored values.
 const profileArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx);
 vm.runInContext(`Object.assign(archive.registry.students.TEST001,{enrollmentDate:'2020-01-01',studiedDuration:'2 năm',cohortYear:'2020',expectedGraduation:'2028-01-01',extra:{'Niên khóa':'2020','Ngày nhập học chính thức':'2020-01-01','Thời gian đã học':'2 năm','Thời gian dự kiến TN':'2028-01-01','Ghi chú khác':'Giữ thông tin này'}});
@@ -215,6 +234,32 @@ vm.runInContext(`state.students=[{id:'QOVER',name:'Vượt',categories:[]},{id:'
 const queueTotal=q('#queue-count').textContent,queueWrites=requests.filter(r=>r.action==='save').length;
 for(const [value,included,excluded]of [['over','QOVER','QNEAR'],['near','QNEAR','QOVER'],['missing','QMISSING','QOVER']]){q('#queue-severity').value=value;q('#queue-severity').onchange();assert(q('#queue-items').textContent.includes(included));assert(!q('#queue-items').textContent.includes(excluded));assert(q('#queue-count').textContent.includes('Hiển thị 1/3'));vm.runInContext('render()',ctx);assert.equal(q('#queue-severity').value,value);}
 q('#queue-severity').value='all';q('#queue-severity').onchange();assert.equal(q('#queue-count').textContent,queueTotal);assert.equal(requests.filter(r=>r.action==='save').length,queueWrites);assert(!ctx.RegistryCloud.hasUnsaved);
+// Course/severity filters combine, while unsaved inline notes survive redraws.
+const quickInput=(id,subject)=>[...q('#queue-items').querySelectorAll('[data-queue-note]')].find(n=>{const parts=JSON.parse(n.dataset.queueNote);return parts[1]===id&&parts[2]===subject;});
+const quickSave=input=>[...q('#queue-items').querySelectorAll('[data-queue-save]')].find(n=>n.dataset.queueSave===input.dataset.queueNote);
+vm.runInContext(`const row=state.records[0];state.dailyFollow[followKey(row,state.asof)]={id:row.id,term:row.term,subject:row.subject,group:row.group,date:state.asof,status:'contacted',note:'Ghi chú cũ',publicNote:'Nội dung công khai',updated:'trước'};render()`,ctx);
+q('#queue-course').value='M1';q('#queue-course').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));assert(!q('#queue-items').textContent.includes('QMISSING'));
+const privateNote='NỘI BỘ RIÊNG <b>không gửi sinh viên</b>';
+let quick=quickInput('QOVER','M1');quick.value=privateNote;quick.oninput();const quickWrites=requests.filter(r=>r.action==='save').length;
+q('#queue-course').value='M2';q('#queue-course').onchange();assert(!q('#queue-drafts').hidden);assert.equal(q('#queue-drafts textarea').value,privateNote);q('#queue-course').value='M1';q('#queue-course').onchange();quick=quickInput('QOVER','M1');assert.equal(quick.value,privateNote);assert.equal(requests.filter(r=>r.action==='save').length,quickWrites);
+await quickSave(quick).click();
+let internal=vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER'&&f.subject==='M1')",ctx);assert.equal(internal.note,privateNote);assert.equal(internal.status,'contacted');assert.equal(internal.publicNote,'Nội dung công khai');assert(!ctx.RegistryCloud.hasUnsaved);
+const studentReport=vm.runInContext("JSON.stringify(excelTables('QOVER'))",ctx);assert(!studentReport.includes(privateNote));assert(studentReport.includes('Nội dung công khai'));
+// Failure retains the draft; retry does not append another audit event.
+quick=quickInput('QOVER','M1');quick.value='Nội bộ chờ xác nhận';quick.oninput();const quickFetch=ctx.fetch;
+ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save')return {json:async()=>({ok:true,data:{revision:body.p.revision+1}})};return quickFetch(url,options);};
+await quickSave(quick).click();assert(ctx.RegistryCloud.hasUnsaved);assert.equal(quickInput('QOVER','M1').value,'Nội bộ chờ xác nhận');assert(q('#queue-items').textContent.includes('Chưa xác nhận lưu'));
+const quickAudit=vm.runInContext('state.followAudit.length',ctx);ctx.fetch=quickFetch;await quickSave(quickInput('QOVER','M1')).click();assert(!ctx.RegistryCloud.hasUnsaved);assert.equal(vm.runInContext('state.followAudit.length',ctx),quickAudit);
+// Editing a failed draft does not mistake the user's own pending write for another writer.
+quick=quickInput('QOVER','M1');quick.value='Bản lỗi trước';quick.oninput();ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save')return {json:async()=>({ok:true,data:{revision:body.p.revision+1}})};return quickFetch(url,options);};await quickSave(quick).click();quick=quickInput('QOVER','M1');quick.value='Bản sửa sau lỗi';quick.oninput();ctx.fetch=quickFetch;await quickSave(quick).click();assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER').note",ctx),'Bản sửa sau lỗi');assert(!ctx.RegistryCloud.hasUnsaved);
+// New typing while a request is in flight remains a separate unsaved draft.
+let releaseQuick;ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='save')await new Promise(r=>releaseQuick=r);return quickFetch(url,options);};
+quick=quickInput('QOVER','M1');quick.value='Bản gửi trước';quick.oninput();const quickFlight=quickSave(quick).click();await new Promise(r=>setTimeout(r,0));quick=quickInput('QOVER','M1');quick.value='Bản nhập tiếp';quick.oninput();releaseQuick();await quickFlight;assert.equal(quickInput('QOVER','M1').value,'Bản nhập tiếp');ctx.fetch=quickFetch;await quickSave(quickInput('QOVER','M1')).click();assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER').note",ctx),'Bản nhập tiếp');
+// No course data: store an internal general note on the correct student.
+q('#queue-course').value='';q('#queue-course').onchange();q('#queue-severity').value='missing';q('#queue-severity').onchange();quick=quickInput('QMISSING','');quick.value='Ghi chú chung nội bộ';quick.oninput();await quickSave(quick).click();assert.equal(vm.runInContext("state.notes.QMISSING.at(-1).text",ctx),'Ghi chú chung nội bộ');
+// Read-only staff cannot invoke a save even by directly calling the handler.
+q('#queue-severity').value='all';q('#queue-severity').onchange();ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();quick=quickInput('QOVER','M1');assert(quickSave(quick).disabled);const readOnlyWrites=requests.filter(r=>r.action==='save').length;await quickSave(quick).onclick();assert.equal(requests.filter(r=>r.action==='save').length,readOnlyWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
+console.log('PASS course+severity filtering, inline private/general notes, retry deduplication, in-flight edits and read-only guards.');
 ctx.queueArchiveBefore=queueArchiveBefore;vm.runInContext('archive=JSON.parse(window.queueArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS warning-level queue filters preserve totals and selection without writing workspace data.');
 // A double submit sends only one login request while authentication is pending.
