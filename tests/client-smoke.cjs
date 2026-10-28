@@ -288,13 +288,20 @@ const percentChoices=()=>[...q('#queue-percent').querySelectorAll('option')].map
 q('#queue-course').value='M1';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
 q('#queue-percent').value='60';q('#queue-percent').onchange();
 q('#queue-course').value='M2';q('#queue-course').onchange();assert.equal(q('#queue-percent').value,'');assert(percentChoices().includes('20'));assert(!percentChoices().includes('60'));
-q('#queue-severity').value='over';q('#queue-severity').onchange();assert(q('#queue-percent').disabled);assert.equal(percentChoices().length,1);
+q('#queue-severity').value='over';q('#queue-severity').onchange();assert.equal(q('#queue-course').value,'');assert(![...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='M2'));assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
 q('#queue-course').value='';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
 q('#queue-severity').value='all';q('#queue-severity').onchange();
 assert(q('#queue-save-all').closest('.queue-selection-bar'));assert(!q('#queue-save-all').closest('.queue-filters'));
 assert(q('#queue-apply-note').closest('.queue-compose'));
 assert(q('#queue-items [data-queue-select]').closest('td'));assert(!q('#queue-items [data-queue-select]').closest('.queue-note-editor'));
 assert(q('#queue-items [data-queue-save]').closest('.queue-note-actions'));
+vm.runInContext('render()',ctx);
+const selectionCheck=q('#queue-items [data-queue-select]'),selectionCell=selectionCheck.closest('td'),selectionLabel=selectionCheck.closest('label');let selectionOpened=false;
+for(const target of [selectionCheck,selectionLabel]){selectionCell.onclick({target,preventDefault(){selectionOpened=true},stopPropagation(){selectionOpened=true}});selectionCell.onkeydown({target,key:'Enter',preventDefault(){selectionOpened=true},stopPropagation(){selectionOpened=true}});}
+assert(!selectionOpened,'checkbox and its label never open profile or cancel the default checkbox action');
+selectionCheck.checked=true;selectionCheck.onchange();assert(q('#queue-selected-count').textContent.includes('1'));
+selectionCheck.checked=false;selectionCheck.onchange();
+
 console.log('PASS dependent percentage options follow severity/course and clear stale selections; compact grouped controls preserve row selection.');
 
 q('#queue-percent').value='60';q('#queue-percent').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));
