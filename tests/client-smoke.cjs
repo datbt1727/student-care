@@ -284,6 +284,19 @@ console.log('PASS batch notes save hidden drafts in one request; malformed recei
 q('#queue-severity').value='all';q('#queue-severity').onchange();ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();quick=quickInput('QOVER','M1');assert(quickSave(quick).disabled);assert(q('#queue-save-all').disabled);await q('#queue-save-all').onclick();const readOnlyWrites=requests.filter(r=>r.action==='save').length;await quickSave(quick).onclick();assert.equal(requests.filter(r=>r.action==='save').length,readOnlyWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
 console.log('PASS course+severity filtering, inline private/general notes, retry deduplication, in-flight edits and read-only guards.');
 // Queue percentage filter and selected-row bulk actions.
+const percentChoices=()=>[...q('#queue-percent').querySelectorAll('option')].map(n=>n.value);
+q('#queue-course').value='M1';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
+q('#queue-percent').value='60';q('#queue-percent').onchange();
+q('#queue-course').value='M2';q('#queue-course').onchange();assert.equal(q('#queue-percent').value,'');assert(percentChoices().includes('20'));assert(!percentChoices().includes('60'));
+q('#queue-severity').value='over';q('#queue-severity').onchange();assert(q('#queue-percent').disabled);assert.equal(percentChoices().length,1);
+q('#queue-course').value='';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
+q('#queue-severity').value='all';q('#queue-severity').onchange();
+assert(q('#queue-save-all').closest('.queue-selection-bar'));assert(!q('#queue-save-all').closest('.queue-filters'));
+assert(q('#queue-apply-note').closest('.queue-compose'));
+assert(q('#queue-items [data-queue-select]').closest('td'));assert(!q('#queue-items [data-queue-select]').closest('.queue-note-editor'));
+assert(q('#queue-items [data-queue-save]').closest('.queue-note-actions'));
+console.log('PASS dependent percentage options follow severity/course and clear stale selections; compact grouped controls preserve row selection.');
+
 q('#queue-percent').value='60';q('#queue-percent').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));
 q('#queue-percent').value='';q('#queue-percent').onchange();assert([...q('#queue-items').querySelectorAll('[data-queue-student]')].every(b=>b.textContent==='Xem hồ sơ'));
 function selectQueue(id,subject){const n=[...q('#queue-items').querySelectorAll('[data-queue-select]')].find(n=>{const a=JSON.parse(n.dataset.queueSelect);return a[1]===id&&a[2]===subject});assert(n);n.checked=true;n.onchange();}
