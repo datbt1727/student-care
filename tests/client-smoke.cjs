@@ -283,6 +283,33 @@ console.log('PASS batch notes save hidden drafts in one request; malformed recei
 // Read-only staff cannot invoke a save even by directly calling the handler.
 q('#queue-severity').value='all';q('#queue-severity').onchange();ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();quick=quickInput('QOVER','M1');assert(quickSave(quick).disabled);assert(q('#queue-save-all').disabled);await q('#queue-save-all').onclick();const readOnlyWrites=requests.filter(r=>r.action==='save').length;await quickSave(quick).onclick();assert.equal(requests.filter(r=>r.action==='save').length,readOnlyWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
 console.log('PASS course+severity filtering, inline private/general notes, retry deduplication, in-flight edits and read-only guards.');
+// Queue percentage filter and selected-row bulk actions.
+q('#queue-percent').value='60';q('#queue-percent').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));
+q('#queue-percent').value='';q('#queue-percent').onchange();assert([...q('#queue-items').querySelectorAll('[data-queue-student]')].every(b=>b.textContent==='Xem hồ sơ'));
+function selectQueue(id,subject){const n=[...q('#queue-items').querySelectorAll('[data-queue-select]')].find(n=>{const a=JSON.parse(n.dataset.queueSelect);return a[1]===id&&a[2]===subject});assert(n);n.checked=true;n.onchange();}
+selectQueue('QOVER','M1');selectQueue('QNEAR','M2');
+const bulkStart=requests.filter(r=>r.action==='save').length;
+q('#queue-common-note').value='Cùng nội dung liên hệ';q('#queue-apply-note').click();
+assert.equal(quickInput('QOVER','M1').value,'Cùng nội dung liên hệ');assert.equal(quickInput('QNEAR','M2').value,'Cùng nội dung liên hệ');
+assert.equal(requests.filter(r=>r.action==='save').length,bulkStart,'fill common note never saves automatically');
+await q('#queue-save-all').click();assert.equal(requests.filter(r=>r.action==='save').length,bulkStart+1);
+// Failed resolution stays visible and retry reuses audit; success removes both course rows.
+selectQueue('QOVER','M1');selectQueue('QNEAR','M2');
+ctx.fetch=async(url,opt)=>{const b=JSON.parse(opt.body);if(b.action==='save')return {json:async()=>({ok:true,data:{revision:b.p.revision+1}})};return quickFetch(url,opt);};
+await q('#queue-resolve-selected').click();assert(ctx.RegistryCloud.hasUnsaved);assert(quickInput('QOVER','M1'));assert(quickInput('QNEAR','M2'));
+const resolveAudit=vm.runInContext('state.followAudit.length',ctx);
+ctx.fetch=quickFetch;await q('#queue-save-all').click();assert(!ctx.RegistryCloud.hasUnsaved);
+assert.equal(vm.runInContext('state.followAudit.length',ctx),resolveAudit);
+assert(!q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));assert(q('#queue-items').textContent.includes('QMISSING'));
+assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER').status",ctx),'resolved');
+// Read-only cannot apply bulk text or completion even via direct handler.
+ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();
+const noBulkWrites=requests.filter(r=>r.action==='save').length;await q('#queue-resolve-selected').onclick();q('#queue-apply-note').onclick();
+assert.equal(requests.filter(r=>r.action==='save').length,noBulkWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
+vm.runInContext("state.students.push({id:'QONE',name:'Single completion',categories:[]});state.records.push({id:'QONE',name:'Single completion',term:state.termLabel,subject:'M1',group:'G',date:state.asof,start:'2020-01-01',absent:6,slots:10});render()",ctx);
+const resolveOne=[...q('#queue-items').querySelectorAll('[data-queue-resolve]')].find(b=>JSON.parse(b.dataset.queueResolve)[1]==='QONE');
+assert(resolveOne);await resolveOne.click();assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QONE').status",ctx),'resolved');assert(!q('#queue-items').textContent.includes('QONE'));
+console.log('PASS percentage filter, accurate profile label, bulk common drafts and resolution; failed receipt retains rows; retry avoids duplicate audit; missing records remain.');
 ctx.queueArchiveBefore=queueArchiveBefore;vm.runInContext('archive=JSON.parse(window.queueArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS warning-level queue filters preserve totals and selection without writing workspace data.');
 // A double submit sends only one login request while authentication is pending.
