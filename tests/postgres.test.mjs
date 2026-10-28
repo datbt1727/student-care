@@ -1,3 +1,4 @@
+import {gzipSync} from 'node:zlib';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';import pg from 'pg';import {S3Client} from '@aws-sdk/client-s3';import {randomBytes} from 'node:crypto';
 import {hashPassword,encrypt,decrypt,totpSecret,totp} from '../lib/security.mjs';
@@ -29,7 +30,7 @@ test('PostgreSQL engine: first-login, save transaction/idempotency/conflict, enc
  r=await call('load');assert.equal(r.statusCode,200,JSON.stringify(r.body));assert.equal(r.body.data.revision,1);
  const updated=structuredClone(base);updated.terms['2026-FALL'].students=[{id:'TEST01',name:'Sinh viên kiểm thử'}];
  const save={requestId:'save-test-0001',revision:1,json:JSON.stringify(updated)};
- r=await call('save',save);assert.equal(r.statusCode,200,JSON.stringify(r.body));assert.equal(r.body.data.revision,2);
+ const compressedSave={...save,jsonGzip:gzipSync(save.json).toString('base64')};delete compressedSave.json;r=await call('save',compressedSave);assert.equal(r.statusCode,200,JSON.stringify(r.body));assert.equal(r.body.data.revision,2);
  const encrypted=(await query('SELECT cipher FROM sc_archive')).rows[0].cipher;assert(!encrypted.includes('Sinh viên'));assert.deepEqual(decrypt(encrypted,'archive'),updated);
  assert.equal((await call('save',save)).body.data.revision,2);
  r=await call('save',{...save,requestId:'save-test-0002'});assert.equal(r.statusCode,409,JSON.stringify(r.body));

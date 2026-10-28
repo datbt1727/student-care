@@ -1,4 +1,5 @@
 import {createHmac} from 'node:crypto';
+import {unpackSavePayload} from '../lib/save-payload.mjs';
 import {db,transaction} from '../lib/db.mjs';
 import {rate} from '../lib/rate.mjs';
 import {fail,assertOrigin,hashPassword,verifyPassword,opaque,digest,equal,encrypt,decrypt,publicUser,verifyTotp,totpSecret,key,validateArchive} from '../lib/security.mjs';
@@ -25,7 +26,7 @@ export default async function handler(req,res){
  if(!String(req.headers['content-type']||'').startsWith('application/json'))throw fail('JSON required',415);
  const body=typeof req.body==='string'?JSON.parse(req.body):req.body;
  if(!body||Buffer.byteLength(JSON.stringify(body))>3500000)throw fail('Yêu cầu vượt 3,5 MB. Chia nhỏ lần nhập.',413);
- const {action,p={}}=body;
+ const {action}=body;let {p={}}=body;
  if(typeof action!=='string'||!p||typeof p!=='object'||Array.isArray(p))throw fail('Yêu cầu không hợp lệ.');
  const ip=String(req.headers['x-vercel-forwarded-for']||req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',')[0];
  const ipKey=createHmac('sha256',key('RATE_KEY')).update(ip).digest('hex');
@@ -74,7 +75,7 @@ export default async function handler(req,res){
  switch(action){
  case 'load':{result=await workspaceFor(s);break;}
  case 'sync':{if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const row=(await db().query('SELECT revision,cipher FROM sc_archive WHERE id=1')).rows[0];if(!row)throw fail('Chưa có dữ liệu.',503);result={revision:row.revision,user:publicUser(s),changed:row.revision!==p.revision};if(result.changed)result.archive=decrypt(row.cipher,'archive');break;}
- case 'save':{if(!canWrite(s))throw fail('Tài khoản chỉ có quyền đọc dữ liệu.',403);
+ case 'save':{if(!canWrite(s))throw fail('Tài khoản chỉ có quyền đọc dữ liệu.',403);p=unpackSavePayload(p);
  // Staff currently share the full workspace. No false per-mentor isolation is claimed.
  const a=validateArchive(JSON.parse(p.json||''));if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const requestHash=digest(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])),receipt=revision=>({committed:true,requestId:p.requestId,requestHash,revision});if(!/^[\w-]{8,100}$/.test(p.requestId||''))throw fail('Mã yêu cầu không hợp lệ.');
  result=await transaction(async c=>{await assertActor(c);await c.query('SELECT id FROM sc_archive WHERE id=1 FOR UPDATE');const prior=(await c.query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,p.requestId])).rows[0];if(prior){if(prior.request_hash!==requestHash)throw fail('Mã lưu đã được dùng cho nội dung khác. Không ghi đè dữ liệu.',409);return {revision:prior.revision,receipt:receipt(prior.revision),warning:''};}

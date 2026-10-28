@@ -464,9 +464,16 @@ ensureImports();render();
  function createStudentConnection({fetcher,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
   const reads=new Set(['load','sync','health','resume','users','logs','job']);
   const transient=new Set([500,502,503,504]);
-  const message=(code)=>code==='TIMEOUT'?'Máy chủ phản hồi quá thời gian. Chưa xác nhận lưu; giữ trang mở và thử lại.':code==='NETWORK'?'Mất kết nối tới máy chủ. Chưa xác nhận lưu; giữ trang mở và kiểm tra mạng.':code==='413'?'Dữ liệu gửi vượt giới hạn cho phép. Chưa xác nhận lưu; giữ bản chưa đồng bộ và chia nhỏ dữ liệu.':'Máy chủ trả về phản hồi không hợp lệ'+(/^\d+$/.test(code)?' (HTTP '+code+')':'')+'. Chưa xác nhận lưu; giữ trang mở và thử lại.';
+  const message=(code)=>code==='TIMEOUT'?'Máy chủ phản hồi quá thời gian. Chưa xác nhận lưu; giữ trang mở và thử lại.':code==='NETWORK'?'Mất kết nối tới máy chủ. Chưa xác nhận lưu; giữ trang mở và kiểm tra mạng.':code==='413'?'Dữ liệu gửi vượt giới hạn cho phép. Chưa xác nhận lưu; giữ bản chưa đồng bộ. Gói dữ liệu vượt giới hạn truyền; cần kiểm tra dung lượng hoặc cập nhật trình duyệt.':'Máy chủ trả về phản hồi không hợp lệ'+(/^\d+$/.test(code)?' (HTTP '+code+')':'')+'. Chưa xác nhận lưu; giữ trang mở và thử lại.';
   return {async request(action,p,csrf){
-   const body=JSON.stringify({action,p}),safe=reads.has(action)||action==='save'&&/^[\w-]{8,100}$/.test(p.requestId||''),attempts=safe?3:1;
+   let body=JSON.stringify({action,p});
+   if(action==='save'&&typeof p.json==='string'&&new TextEncoder().encode(body).length>1000000&&typeof CompressionStream==='function'){
+    const raw=new TextEncoder().encode(p.json);if(raw.length>24000000){const e=Error(message('413'));e.code='413';throw e;}
+    const compressed=new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    let binary='';for(let i=0;i<compressed.length;i+=8192)binary+=String.fromCharCode(...compressed.subarray(i,i+8192));
+    const packed={...p,jsonGzip:btoa(binary)};delete packed.json;body=JSON.stringify({action,p:packed});
+   }
+   const safe=reads.has(action)||action==='save'&&/^[\w-]{8,100}$/.test(p.requestId||''),attempts=safe?3:1;
    if(new TextEncoder().encode(body).length>3500000){const e=Error(message('413'));e.code='413';throw e;}
    for(let attempt=0;attempt<attempts;attempt++){
     try{
