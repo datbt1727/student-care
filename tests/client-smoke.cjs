@@ -193,6 +193,15 @@ assert(qaXML.includes('O1:S1'));assert(qaXML.includes('xSplit="3"'));assert(!qaX
 const legacyBytes=await originalMake([{name:'Legacy',rows:[['MSSV',...retired,'Email'],['EXPORT01','a','b','c','d','export@example.test']],headerRow:1}]);
 const legacyZip=await ctx.JSZip.loadAsync(legacyBytes),legacyXML=await legacyZip.file('xl/worksheets/sheet1.xml').async('string');
 for(const label of retired)assert(!legacyXML.includes(label));assert(legacyXML.includes('export@example.test'));assert(/r="B2"[^>]*t="inlineStr"/.test(legacyXML));assert(!legacyXML.includes('r="F2"'));
+// General notes appear as plain content in Follow, including a student with no course data.
+vm.runInContext(`state.students.push({id:'NOCOURSE',name:'No course',categories:[]});state.notes={EXPORT01:[{date:'2026-10-25',time:'PRIVATE_TIME',text:'General note content'},{date:'2026-10-27',text:'Future note hidden'}],NOCOURSE:[{date:'2026-10-26',time:'PRIVATE_TIME',text:'Missing attendance note'},{text:'Legacy general note'}]};`,ctx);
+const generalSheet=vm.runInContext('qaFollowTable()',ctx)[0],generalIndex=generalSheet.rows[0].indexOf('Follow (ghi chú chung)');
+assert(generalIndex>=14);assert.equal(generalSheet.rows[3][generalIndex],'General note content');
+assert.equal(generalSheet.rows[4][generalIndex],'Missing attendance note\nLegacy general note');
+const generalZip=await ctx.JSZip.loadAsync(await originalMake([generalSheet])),generalXML=await generalZip.file('xl/worksheets/sheet1.xml').async('string');
+assert(generalXML.includes('General note content'));assert(generalXML.includes('Missing attendance note'));assert(!generalXML.includes('PRIVATE_TIME'));assert(!generalXML.includes('Future note hidden'));
+vm.runInContext("state.students.pop();state.notes={}",ctx);
+console.log('PASS general notes export into Follow as content only, including students without attendance, while future dated notes remain excluded.');
 // Regression: a student can attend distinct groups of one subject on the same date.
 vm.runInContext(`state.records.push({id:'EXPORT01',subject:'TEST101',group:'H',date:'2026-10-26',absent:5,slots:10});state.dailyFollow={g:{id:'EXPORT01',subject:'TEST101',group:'G',date:'2026-10-26',note:'Note group G'},h:{id:'EXPORT01',subject:'TEST101',group:'H',date:'2026-10-26',note:'Note group H'}};`,ctx);
 const grouped=vm.runInContext('qaFollowTable()',ctx)[0];
