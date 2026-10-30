@@ -318,6 +318,14 @@ console.log('PASS batch notes save hidden drafts in one request; malformed recei
 // Read-only staff cannot invoke a save even by directly calling the handler.
 q('#queue-severity').value='all';q('#queue-severity').onchange();ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();quick=quickInput('QOVER','M1');assert(quickSave(quick).disabled);assert(q('#queue-save-all').disabled);await q('#queue-save-all').onclick();const readOnlyWrites=requests.filter(r=>r.action==='save').length;await quickSave(quick).onclick();assert.equal(requests.filter(r=>r.action==='save').length,readOnlyWrites);ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();
 console.log('PASS course+severity filtering, inline private/general notes, retry deduplication, in-flight edits and read-only guards.');
+// Compact tools start folded, remain in the heading/selection bar, and retain common input.
+assert(q('#queue-compose-panel').hidden);
+assert(q('#queue-view-current').closest('.panel-heading'));
+assert(q('#queue-resolve-selected').closest('.queue-selection-bar'));
+q('#queue-toggle-compose').click();assert(!q('#queue-compose-panel').hidden);assert.equal(q('#queue-toggle-compose').getAttribute('aria-expanded'),'true');
+q('#queue-common-note').value='Common draft retained on fold';q('#queue-toggle-compose').click();assert(q('#queue-compose-panel').hidden);
+vm.runInContext('render()',ctx);q('#queue-toggle-compose').click();assert.equal(q('#queue-common-note').value,'Common draft retained on fold');q('#queue-toggle-compose').click();
+console.log('PASS compact two-tab layout folds common input without deleting it or moving bulk save/completion away from selection.');
 // Queue percentage filter and selected-row bulk actions.
 const percentChoices=()=>[...q('#queue-percent').querySelectorAll('option')].map(n=>n.value);
 q('#queue-course').value='M1';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
