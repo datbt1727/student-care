@@ -193,7 +193,33 @@ assert(qaXML.includes('O1:S1'));assert(qaXML.includes('xSplit="3"'));assert(!qaX
 const legacyBytes=await originalMake([{name:'Legacy',rows:[['MSSV',...retired,'Email'],['EXPORT01','a','b','c','d','export@example.test']],headerRow:1}]);
 const legacyZip=await ctx.JSZip.loadAsync(legacyBytes),legacyXML=await legacyZip.file('xl/worksheets/sheet1.xml').async('string');
 for(const label of retired)assert(!legacyXML.includes(label));assert(legacyXML.includes('export@example.test'));assert(/r="B2"[^>]*t="inlineStr"/.test(legacyXML));assert(!legacyXML.includes('r="F2"'));
-ctx.restoreQAState=JSON.parse(qaStateSnapshot);vm.runInContext('Object.assign(state,window.restoreQAState)',ctx);
+// Regression: a student can attend distinct groups of one subject on the same date.
+vm.runInContext(`state.records.push({id:'EXPORT01',subject:'TEST101',group:'H',date:'2026-10-26',absent:5,slots:10});state.dailyFollow={g:{id:'EXPORT01',subject:'TEST101',group:'G',date:'2026-10-26',note:'Note group G'},h:{id:'EXPORT01',subject:'TEST101',group:'H',date:'2026-10-26',note:'Note group H'}};`,ctx);
+const grouped=vm.runInContext('qaFollowTable()',ctx)[0];
+assert.deepEqual(Array.from(grouped.courseColumns),[14,19]);assert.equal(grouped.rows[0][14],'TEST101 · G');assert.equal(grouped.rows[0][19],'TEST101 · H');
+assert.equal(grouped.rows[3][17].value,24.4);assert.equal(grouped.rows[3][18],'Note group G');assert.equal(grouped.rows[3][20].value,50);assert.equal(grouped.rows[3][21],'Note group H');
+vm.runInContext("state.students.forEach(s=>s.categories??=[]);state.records.forEach(r=>{r.term=state.termLabel;r.start='2020-01-01'})",ctx);
+const exportPrepare=ctx.RegistryCloud.prepareReport;let releaseExport,exported=[],prepareCount=0;
+ctx.RegistryCloud.prepareReport=async()=>{prepareCount++;await new Promise(r=>releaseExport=r)};
+ctx.download=async(name,bytes)=>{exported.push({name,bytes});return {method:'test'}};
+const firstQA=q('#export').onclick();assert(q('#export').disabled);assert(q('#export-feedback').textContent.includes('Đang kiểm tra'));
+await q('#export').onclick();assert.equal(prepareCount,1);releaseExport();await firstQA;
+assert.equal(exported.length,1);assert(!q('#export').disabled);
+const groupedZip=await ctx.JSZip.loadAsync(exported[0].bytes),groupedXML=await groupedZip.file('xl/worksheets/sheet1.xml').async('string');
+assert(groupedXML.includes('TEST101 · G'));assert(groupedXML.includes('TEST101 · H'));assert(groupedXML.includes('Note group G'));assert(groupedXML.includes('Note group H'));
+ctx.RegistryCloud.prepareReport=async()=>{};await q('#term-full-export').onclick();assert.equal(exported.length,2);
+// Failures are visible beside the clicked button; no file is produced.
+ctx.RegistryCloud.prepareReport=async()=>{throw Error('Test server unavailable')};await q('#export').onclick();
+assert(q('#export-feedback').textContent.includes('Test server unavailable'));assert.equal(q('#export-feedback').getAttribute('role'),'alert');assert.equal(exported.length,2);assert(!q('#export').disabled);
+ctx.RegistryCloud.prepareReport=async()=>{};
+vm.runInContext('state.records.push({...state.records[0]})',ctx);await q('#export').onclick();
+assert(q('#export-feedback').textContent.includes('trùng bản ghi'));assert.equal(exported.length,2);
+vm.runInContext('state.records.pop()',ctx);
+ctx.download=async()=>{const e=Error('cancel');e.name='AbortError';throw e};await q('#export').onclick();
+assert(q('#export-feedback').textContent.includes('Đã hủy'));assert(!q('#export').disabled);
+ctx.RegistryCloud.prepareReport=exportPrepare;ctx.download=originalDownload;ctx.Operation.clear();
+console.log('PASS real QA/term export click: multi-group data and notes stay separate; progress, double-click lock, inline errors and cancellation work.');
+ctx.restoreQAState=JSON.parse(qaStateSnapshot);ctx.restoreQAArchive=qaArchiveSnapshot;vm.runInContext('archive=JSON.parse(window.restoreQAArchive);state=archive.terms[archive.active];Object.assign(state,window.restoreQAState)',ctx);
 assert.equal(vm.runInContext('JSON.stringify(archive)',ctx),qaArchiveSnapshot);
 console.log('PASS real QA/summary XLSX has 14 profile columns, aligned course percentages, and no retired fields; legacy export guard preserves stored archive.');
 // Retired training fields must disappear from every profile view without deleting stored values.
