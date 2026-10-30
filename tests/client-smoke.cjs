@@ -232,7 +232,7 @@ const beforePreviewExports=exported.length;
 for(const previewId of ['export-preview','term-full-export-preview']){
  await q('#'+previewId).onclick();
  const dialog=q('.sc-report-preview');assert(dialog);assert(dialog.querySelector('table'));
- assert(dialog.querySelector('select').children.length>0);
+ assert(dialog.querySelector('select').children.length>0);assert(dialog.querySelector('thead'));assert(dialog.querySelector('th[rowspan="3"]'));assert(!dialog.querySelector('tbody th'));
  dialog.querySelector('button').onclick();assert(!q('.sc-report-preview'));
 }
 assert.equal(exported.length,beforePreviewExports);ctx.RegistryCloud.prepareReport=exportPrepare;
