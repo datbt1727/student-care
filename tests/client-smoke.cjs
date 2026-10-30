@@ -11,7 +11,7 @@ function select(root,s){if(s.includes(','))return [...new Set(s.split(',').flatM
 N.prototype.before=function(...nodes){for(const n of nodes)this.parentElement.insertBefore(n,this)};
 const html=fs.readFileSync(root+'/web/source.html','utf8'),scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
 const doc=new N('document');doc.append(...parse(html.replace(/<script>[\s\S]*?<\/script>/g,'').replace(/<style>[\s\S]*?<\/style>/g,'')));doc.documentElement=doc.querySelector('html');doc.body=doc.querySelector('body');doc.createElement=t=>new N(t);doc.getElementById=id=>doc.querySelector('#'+id);
-const docEvents={};doc.addEventListener=(name,fn)=>{(docEvents[name]??=[]).push(fn)};N.prototype.matches=function(s){return s.split(',').some(part=>match(this,part.trim()))};
+const docEvents={};doc.removeEventListener=(name,fn)=>{docEvents[name]=(docEvents[name]||[]).filter(x=>x!==fn)};doc.addEventListener=(name,fn)=>{(docEvents[name]??=[]).push(fn)};N.prototype.matches=function(s){return s.split(',').some(part=>match(this,part.trim()))};
 const downloads=[],storage=new Map(),requests=[];
 let saved={version:2,active:'2026-FALL',terms:{'2026-FALL':{termId:'2026-FALL',termLabel:'FALL 2026',asof:'2026-10-23',limit:25,early:20,students:[],records:[],courseCatalog:[],notes:{},dailyFollow:{},log:[],importFiles:[]}},registry:{students:{},events:[],seen:{}},studentServices:{certificates:[],insurance:[],audit:[]}};
 const user={username:'admin.test',displayName:'Admin',role:'admin',active:true,mustChange:false};
@@ -227,6 +227,16 @@ vm.runInContext('state.records.pop()',ctx);
 ctx.download=async()=>{const e=Error('cancel');e.name='AbortError';throw e};await q('#export').onclick();
 assert(q('#export-feedback').textContent.includes('Đã hủy'));assert(!q('#export').disabled);
 ctx.RegistryCloud.prepareReport=exportPrepare;ctx.download=originalDownload;ctx.Operation.clear();
+ctx.RegistryCloud.prepareReport=async()=>{};
+const beforePreviewExports=exported.length;
+for(const previewId of ['export-preview','term-full-export-preview']){
+ await q('#'+previewId).onclick();
+ const dialog=q('.sc-report-preview');assert(dialog);assert(dialog.querySelector('table'));
+ assert(dialog.querySelector('select').children.length>0);
+ dialog.querySelector('button').onclick();assert(!q('.sc-report-preview'));
+}
+assert.equal(exported.length,beforePreviewExports);ctx.RegistryCloud.prepareReport=exportPrepare;
+console.log('PASS QA and semester preview open real report sheets without downloading and close cleanly.');
 console.log('PASS real QA/term export click: multi-group data and notes stay separate; progress, double-click lock, inline errors and cancellation work.');
 ctx.restoreQAState=JSON.parse(qaStateSnapshot);ctx.restoreQAArchive=qaArchiveSnapshot;vm.runInContext('archive=JSON.parse(window.restoreQAArchive);state=archive.terms[archive.active];Object.assign(state,window.restoreQAState)',ctx);
 assert.equal(vm.runInContext('JSON.stringify(archive)',ctx),qaArchiveSnapshot);
@@ -272,7 +282,11 @@ const queueArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx);
 vm.runInContext(`state.students=[{id:'QOVER',name:'Vượt',categories:[]},{id:'QNEAR',name:'Gần',categories:[]},{id:'QMISSING',name:'Thiếu',categories:[]}];state.records=[{id:'QOVER',name:'Vượt',term:state.termLabel,group:'G',subject:'M1',date:state.asof,start:'2020-01-01',absent:6,slots:10},{id:'QNEAR',name:'Gần',term:state.termLabel,group:'G',subject:'M2',date:state.asof,start:'2020-01-01',absent:2,slots:10}];state.limit=25;state.early=20;state.dailyFollow={};render()`,ctx);
 const queueTotal=q('#queue-count').textContent,queueWrites=requests.filter(r=>r.action==='save').length;
 for(const [value,included,excluded]of [['over','QOVER','QNEAR'],['near','QNEAR','QOVER'],['missing','QMISSING','QOVER']]){q('#queue-severity').value=value;q('#queue-severity').onchange();assert(q('#queue-items').textContent.includes(included));assert(!q('#queue-items').textContent.includes(excluded));assert(q('#queue-count').textContent.includes('Hiển thị 1/3'));vm.runInContext('render()',ctx);assert.equal(q('#queue-severity').value,value);}
-q('#queue-severity').value='all';q('#queue-severity').onchange();assert.equal(q('#queue-count').textContent,queueTotal);assert.equal(requests.filter(r=>r.action==='save').length,queueWrites);assert(!ctx.RegistryCloud.hasUnsaved);
+assert(q('#queue-items .queue-only-missing'),'missing-only view gets compact columns without removing source cells');
+const missingEditor=q('#queue-items [data-queue-note]'),missingRow=missingEditor.closest('tr'),missingSave=q('#queue-items [data-queue-save]');
+assert.equal(missingSave.closest('td'),missingRow.children[5]);assert(missingSave.closest('.queue-row-actions'));assert(!missingEditor.parentElement.querySelector('[data-queue-save]'));
+assert.equal(q('#queue-items [data-queue-select]').getAttribute('aria-label'),'Chọn QMISSING');
+q('#queue-severity').value='all';q('#queue-severity').onchange();assert.equal(q('#queue-count').textContent,queueTotal);assert(!q('#queue-items .queue-only-missing'));assert.equal(requests.filter(r=>r.action==='save').length,queueWrites);assert(!ctx.RegistryCloud.hasUnsaved);
 // Course/severity filters combine, while unsaved inline notes survive redraws.
 const quickInput=(id,subject)=>[...q('#queue-items').querySelectorAll('[data-queue-note]')].find(n=>{const parts=JSON.parse(n.dataset.queueNote);return parts[1]===id&&parts[2]===subject;});
 const quickSave=input=>[...q('#queue-items').querySelectorAll('[data-queue-save]')].find(n=>n.dataset.queueSave===input.dataset.queueNote);
