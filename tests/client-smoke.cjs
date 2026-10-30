@@ -365,6 +365,28 @@ vm.runInContext("state.students.push({id:'QONE',name:'Single completion',categor
 const resolveOne=[...q('#queue-items').querySelectorAll('[data-queue-resolve]')].find(b=>JSON.parse(b.dataset.queueResolve)[1]==='QONE');
 assert(resolveOne);await resolveOne.click();assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QONE').status",ctx),'resolved');assert(!q('#queue-items').textContent.includes('QONE'));
 console.log('PASS percentage filter, accurate profile label, bulk common drafts and resolution; failed receipt retains rows; retry avoids duplicate audit; missing records remain.');
+// Production backfill tabs: exact historical date, completed rows included, drafts isolated.
+const mainDateBeforeBackfill=vm.runInContext('state.asof',ctx),beforeBackfillWrites=requests.filter(r=>r.action==='save').length;
+vm.runInContext("state.records.push({id:'QOVER',name:'Vượt',term:state.termLabel,subject:'M1',group:'G',date:'2026-10-20',start:'2020-01-01',absent:6,slots:10},{id:'QNEAR',name:'Gần',term:state.termLabel,subject:'M2',group:'G',date:'2026-10-20',start:'2020-01-01',absent:2,slots:10});render()",ctx);
+quick=quickInput('QMISSING','');quick.value='Draft current retained';quick.oninput();
+q('#queue-view-backfill').click();q('#queue-follow-date').value='2026-10-20';q('#queue-follow-date').onchange();
+assert.equal(vm.runInContext('state.asof',ctx),mainDateBeforeBackfill);
+assert(quickInput('QOVER','M1'));assert(quickInput('QNEAR','M2'));assert(q('#queue-resolve-selected').hidden);
+assert(q('#queue-items [data-queue-resolve]').hidden);
+q('#queue-severity').value='over';q('#queue-severity').onchange();assert(![...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='M2'));q('#queue-severity').value='all';q('#queue-severity').onchange();
+selectQueue('QOVER','M1');selectQueue('QNEAR','M2');q('#queue-common-note').value='Historical common note';q('#queue-apply-note').click();
+assert(q('#queue-save-all').textContent.includes('(2)'));
+q('#queue-follow-date').value='2026-10-19';q('#queue-follow-date').onchange();assert(![...q('#queue-items').querySelectorAll('[data-queue-note]')].some(n=>JSON.parse(n.dataset.queueNote)[2]==='M1'),'never label latest data as a missing historical day');
+q('#queue-follow-date').value='2026-10-20';q('#queue-follow-date').onchange();assert.equal(quickInput('QOVER','M1').value,'Historical common note');
+assert.equal(requests.filter(r=>r.action==='save').length,beforeBackfillWrites,'tabs and date never write');
+await q('#queue-save-all').click();assert.equal(requests.filter(r=>r.action==='save').length,beforeBackfillWrites+1);
+assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER'&&f.date==='2026-10-20').note",ctx),'Historical common note');
+assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER'&&f.date==='2026-10-20').status",ctx),'none');
+assert.equal(vm.runInContext("Object.values(state.dailyFollow).find(f=>f.id==='QOVER'&&f.date===state.asof).status",ctx),'resolved');
+q('#queue-follow-date').value='2099-01-01';q('#queue-follow-date').onchange();assert.equal(q('#queue-follow-date').value,'2026-10-20');
+q('#queue-view-current').click();assert.equal(quickInput('QMISSING','').value,'Draft current retained');assert.equal(vm.runInContext('state.asof',ctx),mainDateBeforeBackfill);
+quick=quickInput('QMISSING','');quick.value='';quick.oninput();
+console.log('PASS backfill bulk notes include completed cases on exact selected day, preserve other-day status/drafts, scope save counts, and never change attendance date.');
 ctx.queueArchiveBefore=queueArchiveBefore;vm.runInContext('archive=JSON.parse(window.queueArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS warning-level queue filters preserve totals and selection without writing workspace data.');
 // A double submit sends only one login request while authentication is pending.
