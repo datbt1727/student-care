@@ -591,14 +591,14 @@ ensureImports();render();
 (function(){
  /* SC LIVE SYNC CONTROLLER START */
  function createWorkspaceSync({snapshot,request,apply,notice,now=Date.now}){
-  let inFlight=false,nextAt=0,failures=0;
+  let inFlight=false,nextAt=0,failures=0,unchanged=0,lastStarted=-Infinity;
   return {async check(force=false){
-   const before=snapshot();if(inFlight||!before.connected||before.hidden||before.busy||(!force&&now()<nextAt))return false;
-   inFlight=true;
+   const before=snapshot();if(inFlight||!before.connected||before.hidden||before.busy||now()-lastStarted<5000||(!force&&now()<nextAt))return false;
+   inFlight=true;lastStarted=now();
    try{const remote=await request(before.revision);const after=snapshot();
     if(!after.connected||after.hidden||after.busy||after.session!==before.session||after.generation!==before.generation||after.revision!==before.revision){if(remote.changed&&after.connected&&after.session===before.session)notice('waiting');return false;}
     if(!Number.isSafeInteger(remote.revision)||remote.revision<before.revision||typeof remote.changed!=='boolean'||remote.changed!== (remote.revision!==before.revision)||remote.changed&&(!remote.archive?.terms||!remote.archive.terms[remote.archive.active]))throw Error('Phản hồi đồng bộ không hợp lệ.');
-    apply(remote);failures=0;nextAt=now()+15000;return remote.changed;
+    apply(remote);failures=0;unchanged=remote.changed?0:unchanged+1;nextAt=now()+(remote.changed?15000:Math.min(60000,15000*2**Math.min(unchanged,2)));return remote.changed;
    }catch(e){failures++;nextAt=now()+Math.min(120000,15000*2**Math.min(failures,3));if(snapshot().connected)notice('offline');return false;}finally{inFlight=false;}
   }};
  }
@@ -713,7 +713,9 @@ ensureImports();render();
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='hidden')liveSync.check(true)});
  window.addEventListener('online',()=>liveSync.check(true));window.addEventListener('focus',()=>liveSync.check());
  window.addEventListener('online',()=>{if(connected&&(dirty||pending)&&!saving&&!flight)flush().catch(()=>{});});
- window.addEventListener('beforeunload',e=>{if(dirty||saving||pending){e.preventDefault();e.returnValue=''}});setInterval(()=>{if(connected)rpc('health').then(health).catch(e=>error(e))},60000);
+ window.addEventListener('beforeunload',e=>{if(dirty||saving||pending){e.preventDefault();e.returnValue=''}});
+ let healthInFlight=false,lastHealthCheck=Date.now();
+ setInterval(async()=>{if(!connected||document.visibilityState==='hidden'||healthInFlight||Date.now()-lastHealthCheck<300000)return;healthInFlight=true;lastHealthCheck=Date.now();try{health(await rpc('health'))}catch(e){if(connected)status('Chưa kiểm tra được trạng thái sao lưu · sẽ thử lại.')}finally{healthInFlight=false}},60000);
  let restored='cookie';
  const resumeGeneration=authGeneration;
  if(restored){token=restored;q('#auth-message').textContent='Đang khôi phục phiên đăng nhập…';setTimeout(async()=>{try{const r=await rpc('resume');if(resumeGeneration!==authGeneration)return;user=r.user;if(user.mustChange){q('#auth-gate').hidden=true;passwordDialog(true)}else await load()}catch(e){if(e.code==='SESSION'||e.code==='AUTH')showLogin(e.message);else{q('#auth-message').textContent=e.message+' Bạn có thể thử đăng nhập lại.';}}},0)}else showLogin();

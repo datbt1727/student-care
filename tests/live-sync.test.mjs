@@ -8,3 +8,13 @@ test('draft, file/import/editor guard and hidden or logged-out tabs never start 
 test('edits, saves, logout/login or tab hiding during a read discard the remote reply',async()=>{for(const change of [s=>s.busy=true,s=>s.generation++,s=>s.revision++,s=>s.session++,s=>s.connected=false,s=>s.hidden=true]){const x=setup();let resolve;x.response=()=>new Promise(r=>resolve=r);const pending=x.c.check();change(x.state);resolve({revision:2,changed:true,archive:{active:'new',terms:{new:{}}}});assert.equal(await pending,false);assert.equal(x.applied.length,0);}});
 test('network failures back off, then recover; malformed revisions never replace data',async()=>{const x=setup();x.response=()=>{throw Error('offline')};await x.c.check();assert.equal(x.notices[0],'offline');await x.c.check();assert.equal(x.calls,1);x.clock=30001;x.response={revision:2,changed:true,archive:{active:'new',terms:{new:{}}}};assert.equal(await x.c.check(),true);for(const response of [{revision:1,changed:true},{revision:3,changed:true,archive:{}},{revision:2,changed:true,archive:{active:'new',terms:{new:{}}}}]){x.response=response;await x.c.check(true);assert.equal(x.applied.length,1);}});
 test('unchanged revisions update account permissions without downloading an archive',async()=>{const x=setup();x.response={revision:1,changed:false,user:{role:'staff',permissions:{}}};assert.equal(await x.c.check(),false);assert.equal(x.applied.length,1);});
+test('unchanged polls adapt to 30 then 60 seconds; a changed revision resets to 15 seconds',async()=>{
+ const x=setup();x.response={revision:1,changed:false,user:{role:'staff'}};
+ await x.c.check();assert.equal(x.calls,1);x.clock=15000;await x.c.check();assert.equal(x.calls,1);
+ x.clock=30000;await x.c.check();assert.equal(x.calls,2);x.clock=60000;await x.c.check();assert.equal(x.calls,2);
+ x.clock=90000;x.response={revision:2,changed:true,archive:{active:'new',terms:{new:{}}}};await x.c.check();assert.equal(x.calls,3);assert.equal(x.applied.at(-1).revision,2);
+ x.clock=105000;x.response={revision:2,changed:false};await x.c.check();assert.equal(x.calls,4);
+});
+test('focus/online event bursts coalesce while explicit checks recover after five seconds',async()=>{
+ const x=setup();x.response={revision:1,changed:false};await x.c.check(true);await x.c.check(true);x.clock=4999;await x.c.check(true);assert.equal(x.calls,1);x.clock=5000;await x.c.check(true);assert.equal(x.calls,2);
+});

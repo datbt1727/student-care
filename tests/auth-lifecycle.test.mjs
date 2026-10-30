@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import pg from 'pg';import {PGlite} from '@electric-sql/pglite';import {randomBytes} from 'node:crypto';
 import {hashPassword,encrypt,totpSecret,totp,digest} from '../lib/security.mjs';
 const sql=new PGlite();let reads=0;
-async function query(text,p=[]){if(text==='SELECT * FROM sc_archive WHERE id=1')reads++;const r=await sql.query(text,p);return {rows:r.rows,rowCount:r.affectedRows??r.rows.length}}
+async function query(text,p=[]){if(text==='SELECT revision,cipher FROM sc_archive WHERE id=1')reads++;const r=await sql.query(text,p);return {rows:r.rows,rowCount:r.affectedRows??r.rows.length}}
 pg.Pool.prototype.query=query;pg.Pool.prototype.connect=async()=>({query,release(){}});
 process.env.DATA_KEY=randomBytes(32).toString('base64');process.env.RATE_KEY=randomBytes(32).toString('base64');process.env.APP_ORIGIN='https://student.test';
 const {default:handler}=await import('../api/rpc.mjs');let cookie='',csrf='';

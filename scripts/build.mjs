@@ -10,13 +10,15 @@ let i=0;
 const scripts=[];
 html=html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi,(_,attrs,code)=>{
  if(/\bsrc=/.test(attrs))throw Error('External scripts not permitted');
- const name='app-'+i+++'.js';scripts.push([name,code.includes('JSZip v3.10.1')?auditedZip:code]);return '<script src="/assets/'+name+'" defer></script>';
+ const shipped=code.includes('JSZip v3.10.1')?auditedZip:code;
+ const hash=crypto.createHash('sha256').update(shipped).digest('hex').slice(0,16);
+ const name='immutable/'+hash+'/app-'+i+++'.js';scripts.push([name,shipped]);return '<script src="/assets/'+name+'" defer></script>';
 });
-for(const [name,code]of scripts)await fs.writeFile(new URL('../dist/assets/'+name,import.meta.url),code);
+for(const [name,code]of scripts){const url=new URL('../dist/assets/'+name,import.meta.url);await fs.mkdir(new URL('.',url),{recursive:true});await fs.writeFile(url,code);}
 await fs.writeFile(new URL('../dist/index.html',import.meta.url),html);
 await fs.writeFile(new URL('../dist/robots.txt',import.meta.url),'User-agent: *\nDisallow: /\n');
 const csp="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:; upgrade-insecure-requests";
 const headers=[['Content-Security-Policy',csp],['Strict-Transport-Security','max-age=63072000; includeSubDomains'],['X-Content-Type-Options','nosniff'],['X-Frame-Options','DENY'],['Referrer-Policy','no-referrer'],['Permissions-Policy','camera=(), microphone=(), geolocation=()'],['X-Robots-Tag','noindex, nofollow, noarchive'],['Cache-Control','no-store']];
-const config={version:2,regions:['sin1'],buildCommand:'npm run build',outputDirectory:'dist',functions:{'api/*.mjs':{maxDuration:60}},headers:[{source:'/(.*)',headers:headers.map(([key,value])=>({key,value}))}],crons:[{path:'/api/backup',schedule:'0 17 * * *'}]};
+const config={version:2,regions:['sin1'],buildCommand:'npm run build',outputDirectory:'dist',functions:{'api/*.mjs':{maxDuration:60}},headers:[{source:'/(.*)',headers:headers.map(([key,value])=>({key,value}))},{source:'/assets/immutable/(.*)',headers:[{key:'Cache-Control',value:'public, max-age=31536000, immutable'}]}],crons:[{path:'/api/backup',schedule:'0 17 * * *'}]};
 await fs.writeFile(new URL('../vercel.json',import.meta.url),JSON.stringify(config,null,2));
 console.log('Built',scripts.length,'local scripts. No external script/CDN.');

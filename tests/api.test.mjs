@@ -14,6 +14,7 @@ async function query(sql,p=[]){
  if(sql.includes('UPDATE sc_sessions SET last_seen')||sql.includes('INSERT INTO sc_audit'))return {rows:[],rowCount:1};
  if(sql.includes('DELETE FROM sc_sessions')){deletedSessions++;session=null;return {rows:[],rowCount:1};}
  if(sql.includes('UPDATE sc_users SET password_hash')){user.password_hash=p[1];user.must_change=false;return {rows:[],rowCount:1};}
+ if(sql.includes('CASE WHEN revision<>$1'))return {rows:[{revision,cipher:revision===p[0]?null:archive}]};
  if(sql.includes('SELECT revision,cipher FROM sc_archive'))return {rows:[{cipher:archive,revision}]};
  if(sql.includes('SELECT * FROM sc_archive'))return {rows:[{cipher:archive,revision}]};
  if(sql.includes('SELECT completed_at,status'))return {rows:[]};

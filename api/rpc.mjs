@@ -10,11 +10,12 @@ const COOKIE='__Host-sc';
 const audit=(c,u,a,d='')=>c.query('INSERT INTO sc_audit(actor,action,detail) VALUES($1,$2,$3)',[u,a,d]);
 const cookie=(res,value,age)=>res.setHeader('Set-Cookie',COOKIE+'='+value+'; Path=/; Secure; HttpOnly; SameSite=Strict'+(age===null?'':'; Max-Age='+age));
 const parseCookie=req=>String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(COOKIE+'='))?.slice(COOKIE.length+1)||'';
+const parseJsonPayload=value=>{try{return JSON.parse(value)}catch{throw fail('Dữ liệu JSON không hợp lệ. Kiểm tra lại trước khi gửi.',400)}};
 async function health(){const [recent,successful]=await Promise.all([db().query("SELECT completed_at,status FROM sc_backup_runs ORDER BY day DESC LIMIT 1"),db().query("SELECT completed_at,status FROM sc_backup_runs WHERE completed_at IS NOT NULL AND object_key IS NOT NULL ORDER BY completed_at DESC LIMIT 1")]);const last=recent.rows[0],lastSuccess=successful.rows[0];const ok=last?.status==='success'&&Date.now()-new Date(lastSuccess?.completed_at).getTime()<30*3600000;return {mirrorStatus:'Neon · dữ liệu mã hóa',backupAt:lastSuccess?.completed_at||'',backupError:ok?'':last?.status==='running'?'Sao lưu đang chạy; chưa có xác nhận bản mới.':'Chưa xác nhận sao lưu gần nhất thành công trong 30 giờ. Cần kiểm tra.',mirrorError:'',backupSchedule:'00:00 Asia/Ho_Chi_Minh',info:{spreadsheetUrl:'#',driveUrl:'#'}};}
 
 // Independent reads run together; pending sessions never call this helper.
 async function workspaceFor(user){
- const [,read,backupHealth]=await Promise.all([audit(db(),user.username,'read_workspace'),db().query('SELECT * FROM sc_archive WHERE id=1'),health()]);
+ const [,read,backupHealth]=await Promise.all([audit(db(),user.username,'read_workspace'),db().query('SELECT revision,cipher FROM sc_archive WHERE id=1'),health()]);
  const r=read.rows[0];if(!r)throw fail('Quản trị viên chưa khởi tạo dữ liệu.',503);
  return {archive:decrypt(r.cipher,'archive'),revision:r.revision,user:publicUser(user),health:backupHealth};
 }
@@ -24,7 +25,7 @@ export default async function handler(req,res){
  if(req.method!=='POST')throw fail('Method not allowed',405);
  assertOrigin(req);
  if(!String(req.headers['content-type']||'').startsWith('application/json'))throw fail('JSON required',415);
- const body=typeof req.body==='string'?JSON.parse(req.body):req.body;
+ const body=typeof req.body==='string'?parseJsonPayload(req.body):req.body;
  if(!body||Buffer.byteLength(JSON.stringify(body))>3500000)throw fail('Yêu cầu vượt 3,5 MB. Chia nhỏ lần nhập.',413);
  const {action}=body;let {p={}}=body;
  if(typeof action!=='string'||!p||typeof p!=='object'||Array.isArray(p))throw fail('Yêu cầu không hợp lệ.');
@@ -52,7 +53,7 @@ export default async function handler(req,res){
  cookie(res,token,u.must_change?900:remember?seconds:null);return res.json({ok:true,data});
  }
  const raw=parseCookie(req);if(!raw)throw fail('Vui lòng đăng nhập.',401);
- const s=(await db().query("SELECT s.*,u.display_name,u.role,u.active,u.must_change,u.password_hash,u.totp_cipher,u.permissions FROM sc_sessions s JOIN sc_users u USING(username) WHERE token_hash=$1 AND expires_at>now() AND ((s.remember AND last_seen>now()-interval '24 hours') OR (NOT s.remember AND last_seen>now()-interval '60 minutes'))",[digest(raw)])).rows[0];
+ const s=(await db().query("SELECT s.*,u.display_name,u.role,u.active,u.must_change,u.password_hash,u.permissions FROM sc_sessions s JOIN sc_users u USING(username) WHERE token_hash=$1 AND expires_at>now() AND ((s.remember AND last_seen>now()-interval '24 hours') OR (NOT s.remember AND last_seen>now()-interval '60 minutes'))",[digest(raw)])).rows[0];
  if(!s?.active)throw fail('Phiên đã hết hạn hoặc tài khoản bị khóa.',401);
  if(action!=='resume'&&!equal(req.headers['x-sc-csrf'],s.csrf))throw fail('Phiên không hợp lệ. Đăng nhập lại.',403);
  await rate('user:'+s.username,120,60);
@@ -69,23 +70,29 @@ export default async function handler(req,res){
  if(s.must_change||s.pending)throw fail('Bắt buộc đổi mật khẩu tạm trước khi truy cập dữ liệu.',403);
  const admin=()=>{if(s.role!=='admin')throw fail('Chỉ quản trị viên được thực hiện.',403);};
  const permit=key=>requirePermission(s,key);
- const assertActor=async c=>{const live=(await c.query('SELECT * FROM sc_users WHERE username=$1 FOR SHARE',[s.username])).rows[0];if(!live?.active||live.must_change||live.role!==s.role||live.password_hash!==s.password_hash||JSON.stringify(normalizePermissions(live.permissions||{}))!==JSON.stringify(normalizePermissions(s.permissions||{}))||!(await c.query('SELECT token_hash FROM sc_sessions WHERE token_hash=$1',[digest(raw)])).rows.length)throw fail('Quyền hoặc phiên đã thay đổi. Đăng nhập lại trước khi lưu.',401)};
+ const assertActor=async c=>{const live=(await c.query('SELECT username,active,must_change,role,password_hash,permissions FROM sc_users WHERE username=$1 FOR SHARE',[s.username])).rows[0];if(!live?.active||live.must_change||live.role!==s.role||live.password_hash!==s.password_hash||JSON.stringify(normalizePermissions(live.permissions||{}))!==JSON.stringify(normalizePermissions(s.permissions||{}))||!(await c.query('SELECT token_hash FROM sc_sessions WHERE token_hash=$1',[digest(raw)])).rows.length)throw fail('Quyền hoặc phiên đã thay đổi. Đăng nhập lại trước khi lưu.',401)};
  const accountTarget=async(c,username)=>{const target=(await c.query('SELECT * FROM sc_users WHERE username=$1 FOR UPDATE',[username])).rows[0];if(!target)throw fail('Tài khoản không tồn tại.');if(target.role==='admin'&&s.role!=='admin')throw fail('Nhân viên không được quản lý tài khoản quản trị.',403);return target};
  let result;
  switch(action){
  case 'load':{result=await workspaceFor(s);break;}
- case 'sync':{if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const row=(await db().query('SELECT revision,cipher FROM sc_archive WHERE id=1')).rows[0];if(!row)throw fail('Chưa có dữ liệu.',503);result={revision:row.revision,user:publicUser(s),changed:row.revision!==p.revision};if(result.changed)result.archive=decrypt(row.cipher,'archive');break;}
+ // PostgreSQL evaluates CASE before sending rows: unchanged clients receive only
+ // revision + NULL, never the encrypted workspace. One statement also keeps the
+ // revision and payload in the same database snapshot during concurrent saves.
+ case 'sync':{if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const row=(await db().query('SELECT revision,CASE WHEN revision<>$1 THEN cipher ELSE NULL END AS cipher FROM sc_archive WHERE id=1',[p.revision])).rows[0];if(!row)throw fail('Chưa có dữ liệu.',503);result={revision:row.revision,user:publicUser(s),changed:row.revision!==p.revision};if(result.changed)result.archive=decrypt(row.cipher,'archive');break;}
  case 'save':{if(!canWrite(s))throw fail('Tài khoản chỉ có quyền đọc dữ liệu.',403);p=unpackSavePayload(p);
  // Staff currently share the full workspace. No false per-mentor isolation is claimed.
- const a=validateArchive(JSON.parse(p.json||''));if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const requestHash=digest(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])),receipt=revision=>({committed:true,requestId:p.requestId,requestHash,revision});if(!/^[\w-]{8,100}$/.test(p.requestId||''))throw fail('Mã yêu cầu không hợp lệ.');
- result=await transaction(async c=>{await assertActor(c);await c.query('SELECT id FROM sc_archive WHERE id=1 FOR UPDATE');const prior=(await c.query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,p.requestId])).rows[0];if(prior){if(prior.request_hash!==requestHash)throw fail('Mã lưu đã được dùng cho nội dung khác. Không ghi đè dữ liệu.',409);return {revision:prior.revision,receipt:receipt(prior.revision),warning:''};}
- const current=(await c.query('SELECT * FROM sc_archive WHERE id=1')).rows[0];if(!current)throw fail('Chưa có dữ liệu.',503);authorizeArchive(s,decrypt(current.cipher,'archive'),a,p);
+ const a=validateArchive(parseJsonPayload(p.json||''));if(!Number.isSafeInteger(p.revision)||p.revision<1)throw fail('Phiên bản dữ liệu không hợp lệ.');const requestHash=digest(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])),receipt=revision=>({committed:true,requestId:p.requestId,requestHash,revision});if(!/^[\w-]{8,100}$/.test(p.requestId||''))throw fail('Mã yêu cầu không hợp lệ.');
+ result=await transaction(async c=>{await assertActor(c);const locked=(await c.query('SELECT revision FROM sc_archive WHERE id=1 FOR UPDATE')).rows[0];const prior=(await c.query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,p.requestId])).rows[0];if(prior){if(prior.request_hash!==requestHash)throw fail('Mã lưu đã được dùng cho nội dung khác. Không ghi đè dữ liệu.',409);return {revision:prior.revision,receipt:receipt(prior.revision),warning:''};}
+ if(!locked)throw fail('Chưa có dữ liệu.',503);if(locked.revision!==p.revision)throw fail('Dữ liệu đã được người khác thay đổi. Tải lại trước khi lưu.',409);
+ // Admin authorization has no dependency on the old document. Staff still use
+ // the locked current archive for the full field-by-field permission check.
+ if(s.role!=='admin'){const current=(await c.query('SELECT cipher FROM sc_archive WHERE id=1')).rows[0];authorizeArchive(s,decrypt(current.cipher,'archive'),a,p);}
  const r=await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1 AND revision=$2 RETURNING revision',[encrypt(a,'archive'),p.revision]);if(!r.rowCount)throw fail('Dữ liệu đã được người khác thay đổi. Tải lại trước khi lưu.',409);
  await c.query('INSERT INTO sc_requests(username,request_id,revision,request_hash) VALUES($1,$2,$3,$4)',[s.username,p.requestId,r.rows[0].revision,requestHash]);await audit(c,s.username,'workspace_saved','revision='+r.rows[0].revision);return {revision:r.rows[0].revision,receipt:receipt(r.rows[0].revision),warning:''};});try{result.info=await health()}catch(e){result.healthUnavailable=true}break;}
  case 'health':result=await health();break;
  case 'job':{const r=(await db().query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,String(p.requestId||'')])).rows[0];result=r?{status:'done',percent:100,message:'Đã ghi nhận giao dịch lưu.',revision:r.revision}:{status:'unknown',message:'Chưa có xác nhận giao dịch lưu.'};break;}
  case 'logs':permit('viewLogs');result=(await db().query('SELECT * FROM sc_audit ORDER BY id DESC LIMIT 200')).rows.map(r=>[r.at,r.actor,r.action,'Đã ghi nhận',r.detail,'']);break;
- case 'users':permit('manageAccounts');result=(await db().query('SELECT * FROM sc_users ORDER BY username')).rows.map(publicUser);break;
+ case 'users':permit('manageAccounts');result=(await db().query('SELECT username,display_name,role,active,must_change,permissions FROM sc_users ORDER BY username')).rows.map(publicUser);break;
  case 'createUser':{
  permit('manageAccounts');const username=String(p.username||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,60}$/.test(username)||!['admin','staff'].includes(p.role)||typeof p.displayName!=='string'||p.displayName.length>100)throw fail('Thông tin tài khoản không hợp lệ.');
  if(s.role!=='admin'&&(p.role!=='staff'||Object.values(p.permissions||{}).some(Boolean)))throw fail('Chỉ quản trị viên được cấp quyền bổ sung hoặc quyền quản trị.',403);
