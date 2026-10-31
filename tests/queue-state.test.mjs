@@ -17,3 +17,13 @@ test('completion never hides other students, groups, courses or future history',
  term.dailyFollow.x={...done,date:'2026-10-27'};assert.equal(Q.pending(term,[r],r.date).length,1);
 });
 test('browser queue rule is identical to tested module',()=>{const source=fs.readFileSync(new URL('../web/source.html',import.meta.url),'utf8'),module=fs.readFileSync(new URL('../lib/queue-state.cjs',import.meta.url),'utf8').trim();assert(source.includes(module));});
+test('completed history keeps latest completion per group, actor and old snapshot even after reopening',()=>{
+ const first={...done,note:'Đã gọi',resolvedAttendance:record(done.date,20),actor:'staff'},second={...done,date:'2026-10-26',note:'Đã gửi mail',resolvedAttendance:record('2026-10-26',24)},other={...done,group:'OTHER'};
+ const term={records:[record('2026-10-27',30)],followAudit:[first],dailyFollow:{x:first,y:second,z:other,future:{...done,id:'future',date:'2099-01-01'}}};
+ const list=Q.completed(term,'2026-10-27');assert.equal(list.length,2);assert.equal(list.find(f=>f.group==='G').note,'Đã gửi mail');assert.equal(list.find(f=>f.group==='G').resolvedAttendance.absent,24);assert.equal(Q.pending(term,term.records,'2026-10-27').length,1);
+ assert.equal(Q.completed(term,'2026-10-25').find(f=>f.group==='G').actor,'staff');
+});
+test('missing data completion is scoped to term/student/date and never invents attendance',()=>{
+ const term={records:[],dailyFollow:{x:{id:'S',subject:'',group:'',date:'2026-10-25',status:'resolved',resolvedMissing:true,note:''}}},students=[{id:'S'},{id:'OTHER'}];
+ assert.deepEqual(Q.pendingMissing(term,students,'2026-10-26'),[{id:'OTHER'}]);assert.equal(Q.pendingMissing(term,students,'2026-10-24').length,2);assert.equal(Q.pendingMissing({},students,'2026-10-26').length,2);assert.deepEqual(term.records,[]);
+});

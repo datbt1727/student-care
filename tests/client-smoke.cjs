@@ -178,6 +178,18 @@ console.log('PASS reduced semester template XLSX, retired-field preservation, ro
 const rangeRows=vm.runInContext(`(()=>{const values=[9.9,10,12.5,24.4,25,25.01,60],students=values.map((v,i)=>({id:'R'+i,name:'Range '+v})),records=values.flatMap((v,i)=>[{id:'R'+i,subject:'M',group:'G',date:'2026-10-26',absent:0,slots:10000},{id:'R'+i,subject:'M',group:'G',date:'2026-10-27',absent:Math.round(v*100),slots:10000}]);return StudentServices.changed({terms:{T:{students,records}}},'T','2026-10-27').rows;})()`,ctx);
 assert.deepEqual(Array.from(rangeRows,r=>r[4].value),[10,12.5,24.4,25]);
 console.log('PASS daily changed-absence report includes exact 10% and 25%, excludes below/above before rounding.');
+// Daily report refresh has explicit progress/result/error and exports its baseline date.
+const changedArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx),changedDateBefore=q('#changed-date').value,changePrepareBefore=ctx.RegistryCloud.prepareReport,changeDownloadBefore=ctx.download,changeMakeBefore=ctx.makeXlsx;
+vm.runInContext("state.students=[{id:'EMAIL01',name:'Daily report',email:'test@example.invalid'}];state.records=[{id:'EMAIL01',subject:'M',group:'G',date:'2026-10-29',absent:2,slots:10},{id:'EMAIL01',subject:'M',group:'G',date:'2026-10-31',absent:25,slots:100}];",ctx);
+q('#changed-date').value='2026-10-31';let releaseChange,changeChecks=0;ctx.RegistryCloud.prepareReport=async()=>{changeChecks++;await new Promise(r=>releaseChange=r)};
+const changeFlight=q('#changed-preview').click();assert(q('#changed-preview').disabled);assert(q('#changed-feedback').textContent.includes('Đang kiểm tra'));await q('#changed-preview').onclick();assert.equal(changeChecks,1);releaseChange();await changeFlight;
+assert(q('#changed-feedback').textContent.includes('Đã kiểm tra'));assert(q('#changed-list').textContent.includes('29/10/2026'));assert(q('#changed-list').textContent.includes('25%'));assert(!q('#changed-preview').disabled);
+ctx.RegistryCloud.prepareReport=async()=>{};ctx.makeXlsx=async sheets=>{ctx.changedSheets=sheets;return new Uint8Array()};ctx.download=async()=>({method:'test'});await q('#changed-export').click();assert(ctx.changedSheets[0].rows[0].includes('Ngày đối chiếu'));assert.equal(ctx.changedSheets[0].rows[1][7],'29/10/2026');
+q('#changed-date').value='2026-11-01';await q('#changed-preview').click();assert(q('#changed-feedback').textContent.includes('Chưa có điểm danh'));assert(q('#changed-feedback').textContent.includes('31/10/2026'));
+ctx.RegistryCloud.prepareReport=async()=>{throw Error('Kết nối thử lỗi')};await q('#changed-preview').click();assert(q('#changed-feedback').textContent.includes('Kết nối thử lỗi'));assert(q('#changed-feedback').classList.contains('sc-change-error'));assert(!q('#changed-preview').disabled);
+ctx.RegistryCloud.prepareReport=changePrepareBefore;ctx.download=changeDownloadBefore;ctx.makeXlsx=changeMakeBefore;q('#changed-date').value=changedDateBefore;ctx.changedArchiveBefore=changedArchiveBefore;vm.runInContext('archive=JSON.parse(window.changedArchiveBefore);state=archive.terms[archive.active]',ctx);ctx.Operation.clear();
+console.log('PASS daily email preview progress, duplicate-click guard, nearest baseline date in UI/XLSX, no-current-data explanation and explicit errors.');
+
 // Verify real QA/term-summary XLSX bytes, including shifted course/date columns.
 const qaArchiveSnapshot=vm.runInContext('JSON.stringify(archive)',ctx);
 const qaStateSnapshot=vm.runInContext('JSON.stringify(state)',ctx);
@@ -292,6 +304,7 @@ const quickInput=(id,subject)=>[...q('#queue-items').querySelectorAll('[data-que
 const quickSave=input=>[...q('#queue-items').querySelectorAll('[data-queue-save]')].find(n=>n.dataset.queueSave===input.dataset.queueNote);
 vm.runInContext(`const row=state.records[0];state.dailyFollow[followKey(row,state.asof)]={id:row.id,term:row.term,subject:row.subject,group:row.group,date:state.asof,status:'contacted',note:'Ghi chú cũ',publicNote:'Nội dung công khai',updated:'trước'};render()`,ctx);
 q('#queue-course').value='M1';q('#queue-course').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));assert(!q('#queue-items').textContent.includes('QMISSING'));
+q('#queue-view-backfill').click();q('#queue-follow-date').value=vm.runInContext('state.asof',ctx);q('#queue-follow-date').onchange();
 const privateNote='NỘI BỘ RIÊNG <b>không gửi sinh viên</b>';
 let quick=quickInput('QOVER','M1');quick.value=privateNote;quick.oninput();const quickWrites=requests.filter(r=>r.action==='save').length;
 q('#queue-course').value='M2';q('#queue-course').onchange();assert(!q('#queue-drafts').hidden);assert.equal(q('#queue-drafts textarea').value,privateNote);q('#queue-course').value='M1';q('#queue-course').onchange();quick=quickInput('QOVER','M1');assert.equal(quick.value,privateNote);assert.equal(requests.filter(r=>r.action==='save').length,quickWrites);
@@ -371,6 +384,7 @@ assert.equal(quickInput('QOVER','M1').value,'Cùng nội dung liên hệ');asser
 assert.equal(requests.filter(r=>r.action==='save').length,bulkStart,'fill common note never saves automatically');
 await q('#queue-save-all').click();assert.equal(requests.filter(r=>r.action==='save').length,bulkStart+1);
 // Failed resolution stays visible and retry reuses audit; success removes both course rows.
+q('#queue-view-current').click();
 selectQueue('QOVER','M1');selectQueue('QNEAR','M2');
 ctx.fetch=async(url,opt)=>{const b=JSON.parse(opt.body);if(b.action==='save')return {json:async()=>({ok:true,data:{revision:b.p.revision+1}})};return quickFetch(url,opt);};
 await q('#queue-resolve-selected').click();assert(ctx.RegistryCloud.hasUnsaved);assert(quickInput('QOVER','M1'));assert(quickInput('QNEAR','M2'));
@@ -409,6 +423,37 @@ q('#queue-follow-date').value='2099-01-01';q('#queue-follow-date').onchange();as
 q('#queue-view-current').click();assert.equal(quickInput('QMISSING','').value,'Draft current retained');assert.equal(vm.runInContext('state.asof',ctx),mainDateBeforeBackfill);
 quick=quickInput('QMISSING','');quick.value='';quick.oninput();
 console.log('PASS backfill bulk notes include completed cases on exact selected day, preserve other-day status/drafts, scope save counts, and never change attendance date.');
+// Current Save commits note + completion together; unverified writes never enter history.
+q('#queue-view-current').click();q('#queue-severity').value='all';q('#queue-course').value='';q('#queue-percent').value='';
+vm.runInContext("state.students.push({id:'QAUTO',name:'Auto completion',categories:[]});state.records.push({id:'QAUTO',name:'Auto completion',term:state.termLabel,subject:'MX',group:'GA',date:state.asof,start:'2020-01-01',absent:2,slots:10});render()",ctx);
+quick=quickInput('QAUTO','MX');quick.value='Đã liên hệ sinh viên';quick.oninput();
+ctx.fetch=async(url,opt)=>{const b=JSON.parse(opt.body);if(b.action==='save')return {json:async()=>({ok:true,data:{revision:b.p.revision+1}})};return quickFetch(url,opt);};
+await quickSave(quick).click();assert(quickInput('QAUTO','MX'));assert(ctx.RegistryCloud.hasUnsaved);
+q('#queue-view-completed').click();assert(!q('#queue-items [data-completed-student="QAUTO"]'));assert(!q('#queue-items [data-queue-note]'));
+q('#queue-view-current').click();ctx.fetch=quickFetch;const autoAudit=vm.runInContext('state.followAudit.length',ctx);await quickSave(quickInput('QAUTO','MX')).click();
+assert(!quickInput('QAUTO','MX'));assert.equal(vm.runInContext('state.followAudit.length',ctx),autoAudit);
+q('#queue-view-completed').click();assert(q('#queue-items [data-completed-student="QAUTO"]'));assert(q('#queue-items').textContent.includes('Đã liên hệ sinh viên'));
+q('#queue-severity').value='near';q('#queue-severity').onchange();assert([...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='MX'));q('#queue-course').value='MX';q('#queue-course').onchange();q('#queue-percent').value='20';q('#queue-percent').onchange();assert(q('#queue-items [data-completed-student="QAUTO"]'));
+assert(!q('#queue-items [data-queue-resolve]'));assert(!q('#queue-items [data-queue-save]'));
+// All missing-data rows can be acknowledged without inventing notes or attendance.
+q('#queue-severity').value='all';q('#queue-course').value='';q('#queue-percent').value='';q('#queue-view-current').click();
+vm.runInContext("for(let i=0;i<7;i++)state.students.push({id:'NM'+i,name:'Missing '+i,categories:[]});render()",ctx);
+const beforeMissingRecords=vm.runInContext('JSON.stringify(state.records)',ctx),beforeMissingNotes=vm.runInContext('JSON.stringify(state.notes)',ctx);
+q('#queue-select-all').checked=true;q('#queue-select-all').onchange();assert(!q('#queue-resolve-selected').disabled);assert(q('#queue-selected-count').textContent.includes('8'));
+ctx.fetch=async(url,opt)=>{const b=JSON.parse(opt.body);if(b.action==='save')return {json:async()=>({ok:true,data:{revision:b.p.revision+1}})};return quickFetch(url,opt);};
+await q('#queue-resolve-selected').click();assert(quickInput('NM0',''));q('#queue-view-completed').click();assert(!q('#queue-items [data-completed-student="NM0"]'));
+q('#queue-view-current').click();ctx.fetch=quickFetch;const missingAudit=vm.runInContext('state.followAudit.length',ctx);await q('#queue-save-all').click();assert.equal(vm.runInContext('state.followAudit.length',ctx),missingAudit);assert(!quickInput('NM0',''));assert(!quickInput('QMISSING',''));
+assert.equal(vm.runInContext('JSON.stringify(state.records)',ctx),beforeMissingRecords);assert.equal(vm.runInContext('JSON.stringify(state.notes)',ctx),beforeMissingNotes);
+q('#queue-view-completed').click();q('#queue-severity').value='missing';q('#queue-severity').onchange();assert(q('#queue-items [data-completed-student="NM0"]'));assert(q('#queue-items').textContent.includes('Không có ghi chú.'));
+// A corrected same-day ratio reopens current queue but preserves historical 20%.
+q('#queue-severity').value='all';q('#queue-view-current').click();vm.runInContext("state.records.find(r=>r.id==='QAUTO').absent=3;save();render()",ctx);await ctx.RegistryCloud.persist();ctx.ConsoleLayout.notifications();assert(quickInput('QAUTO','MX'));
+q('#queue-view-completed').click();const completedAuto=q('#queue-items [data-completed-student="QAUTO"]');assert(completedAuto.textContent.includes('20%'));assert(completedAuto.textContent.includes('cần xử lý lại'));
+q('#queue-view-current').click();const resolveAuto=[...q('#queue-items').querySelectorAll('[data-queue-resolve]')].find(b=>JSON.parse(b.dataset.queueResolve)[1]==='QAUTO');await resolveAuto.click();assert(!quickInput('QAUTO','MX'));
+q('#queue-view-completed').click();assert(q('#queue-items [data-completed-student="QAUTO"]').textContent.includes('30%'));
+const beforeCompletedView=requests.filter(r=>r.action==='save').length;ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();assert(q('#queue-items [data-completed-student="QAUTO"]'));assert(!q('#queue-items [data-queue-save]'));ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();assert.equal(requests.filter(r=>r.action==='save').length,beforeCompletedView);
+q('#queue-view-current').click();q('#queue-severity').value='all';q('#queue-course').value='';q('#queue-percent').value='';ctx.ConsoleLayout.notifications();
+console.log('PASS save-and-complete only after receipt; completed filters/read-only history; missing bulk completion without fake attendance; same-day correction reopens and completes again.');
+
 ctx.queueArchiveBefore=queueArchiveBefore;vm.runInContext('archive=JSON.parse(window.queueArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS warning-level queue filters preserve totals and selection without writing workspace data.');
 // A double submit sends only one login request while authentication is pending.
