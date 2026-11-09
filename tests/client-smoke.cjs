@@ -217,7 +217,7 @@ console.log('PASS general notes export into Follow as content only, including st
 // Regression: a student can attend distinct groups of one subject on the same date.
 vm.runInContext(`state.records.push({id:'EXPORT01',subject:'TEST101',group:'H',date:'2026-10-26',absent:5,slots:10});state.dailyFollow={g:{id:'EXPORT01',subject:'TEST101',group:'G',date:'2026-10-26',note:'Note group G'},h:{id:'EXPORT01',subject:'TEST101',group:'H',date:'2026-10-26',note:'Note group H'}};`,ctx);
 const grouped=vm.runInContext('qaFollowTable()',ctx)[0];
-assert.deepEqual(Array.from(grouped.courseColumns),[14,19]);assert.equal(grouped.rows[0][14],'TEST101 · G');assert.equal(grouped.rows[0][19],'TEST101 · H');
+assert.deepEqual(Array.from(grouped.courseColumns),[14,19]);assert.equal(grouped.rows[0][14],'Chưa phân Part · TEST101 · G');assert.equal(grouped.rows[0][19],'Chưa phân Part · TEST101 · H');
 assert.equal(grouped.rows[3][17].value,24.4);assert.equal(grouped.rows[3][18],'Note group G');assert.equal(grouped.rows[3][20].value,50);assert.equal(grouped.rows[3][21],'Note group H');
 vm.runInContext("state.students.forEach(s=>s.categories??=[]);state.records.forEach(r=>{r.term=state.termLabel;r.start='2020-01-01'})",ctx);
 const exportPrepare=ctx.RegistryCloud.prepareReport;let releaseExport,exported=[],prepareCount=0;
@@ -456,6 +456,33 @@ console.log('PASS save-and-complete only after receipt; completed filters/read-o
 
 ctx.queueArchiveBefore=queueArchiveBefore;vm.runInContext('archive=JSON.parse(window.queueArchiveBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS warning-level queue filters preserve totals and selection without writing workspace data.');
+// Part scopes never combine two attempts of the same course.
+const partArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx),partReadBefore=ctx.readXlsx;
+q('#detail').close();
+vm.runInContext("state.students=[{id:'PARTSV',name:'Retake student',categories:[]}];state.records=[{id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'A',group:'P1-G',date:'2026-09-01',start:'2026-09-01',end:'2026-10-31',absent:20,slots:40,part:1},{id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'A',group:'P2-G',date:'2026-10-31',start:'2026-10-31',end:'2026-12-31',absent:1,slots:40,part:2}];state.dailyFollow={p1:{id:'PARTSV',subject:'A',group:'P1-G',term:state.termLabel,date:'2026-09-01',status:'resolved',note:'Old Part one note',resolvedAttendance:{date:'2026-09-01',absent:20,slots:40}}};state.followAudit=[];state.importFiles=[{id:'part-fixture',name:'parts.xlsx',date:'2026-10-31',records:JSON.parse(JSON.stringify(state.records)),deleted:false}];state.asof='2026-10-31';save();render()",ctx);await ctx.RegistryCloud.persist();
+assert(ctx.PartScope.change('2'));assert.deepEqual(Array.from(vm.runInContext('rowsNow().map(r=>r.raw)',ctx)),[2.5]);assert(!vm.runInContext('JSON.stringify(reportModel())',ctx).includes('Old Part one note'));
+const partQA=vm.runInContext('qaFollowTable()',ctx)[0];assert(partQA.rows[0].some(v=>String(v).includes('Part 2 · A')));assert(!partQA.rows[0].some(v=>String(v).includes('P1-G')));
+q('#queue-view-completed').click();assert(!q('#queue-items').textContent.includes('Old Part one note'));assert(ctx.PartScope.change('1'));q('#queue-view-completed').click();assert(q('#queue-items').textContent.includes('Old Part one note'));
+assert(ctx.PartScope.change('all'));q('#queue-view-current').click();q('#queue-severity').value='all';q('#queue-course').value='';q('#queue-percent').value='';ctx.ConsoleLayout.notifications();
+const partInput=quickInput('PARTSV','A');assert(partInput===null||partInput===undefined,'old resolved course is not pending');
+// Import preflight requires an explicit Part and captures it for confirmation.
+const partFile={name:'part-attendance.xlsx',arrayBuffer:async()=>new ArrayBuffer(0)};q('#attendance-files').files=[partFile];q('#import-date').value='2026-10-31';q('#attendance-part').value='';await q('#upload-attendance').click();assert(ctx.Operation.status==='error');assert(q('#op-message').textContent.includes('Chọn Part'));
+const partHeads=['Semester','GroupName','SubjectCode','RollNumber','NumberOfSlot','NumberOfAbsent','PercentAbs','StartDate','EndDate','FullName'];
+ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','NEW-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];
+q('#attendance-part').value='2';await q('#upload-attendance').click();assert(q('#review-guidance').textContent.includes('Part 2'));q('#attendance-part').value='1';await q('#review-confirm').click();assert(q('#review-guidance').textContent.includes('Part'));assert(!vm.runInContext("state.records.some(r=>r.group==='NEW-G')",ctx));
+q('#attendance-part').value='2';await q('#upload-attendance').click();await q('#review-confirm').click();assert(vm.runInContext("state.records.some(r=>r.group==='NEW-G'&&r.part===2)",ctx));assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='NEW-G').part,2);
+ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','P1-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];q('#attendance-part').value='2';await q('#upload-attendance').click();assert.equal(ctx.Operation.status,'error');assert(q('#op-message').textContent.includes('Part 1'));
+q('#attendance-files').files=[];ctx.Operation.clear();
+vm.runInContext("const legacyRow={id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'OLD',group:'LEGACY-G',date:'2026-09-01',start:'2026-09-01',end:'2026-10-31',absent:8,slots:40};state.records.push(legacyRow);state.importFiles.push({id:'legacy-part-file',name:'old.xlsx',date:'2026-09-01',records:[{...legacyRow}],deleted:false});save();render()",ctx);await ctx.RegistryCloud.persist();vm.runInContext('render()',ctx);
+assert(!q('#part-assign-legacy').hidden);await q('#part-assign-legacy').click();assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='LEGACY-G').part,1);assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='LEGACY-G').absent,8);assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='P2-G').part,2);assert.equal(ctx.PartScope.selected(),'1');assert(q('#part-assign-legacy').hidden);
+await q('#part-full-groups').click();assert(q('#part-full-dialog').open);
+let fullChoice=[...q('#part-full-list').querySelectorAll('[data-full-group]')].find(n=>n.dataset.fullGroup.includes('P1-G'));assert(fullChoice);fullChoice.checked=true;fullChoice.onchange();await q('#part-full-save').click();assert(!q('#part-full-dialog').open);assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='P1-G').part,'full');assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='P1-G').absent,20);
+assert(ctx.PartScope.change('2'));assert(vm.runInContext("rowsNow().some(r=>r.group==='P1-G'&&r.raw===50)",ctx));q('#queue-view-completed').click();assert(q('#queue-items').textContent.includes('Old Part one note'));
+ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','P1-G','A','PARTSV',40,21,52.5,'2026-09-01','2026-12-31','Retake student']]}];q('#attendance-files').files=[partFile];q('#attendance-part').value='2';q('#import-date').value='2026-11-01';await q('#upload-attendance').click();await q('#review-confirm').click();assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='P1-G'&&r.date==='2026-11-01').part,'full');assert.equal(vm.runInContext("rowsNow().find(r=>r.group==='P1-G').raw",ctx),52.5);q('#attendance-files').files=[];
+console.log('PASS whole-semester group classification persists; both Parts show continuing cumulative rate and later Part 2 imports inherit Cả kỳ.');
+q('#attendance-files').files=[];q('#attendance-part').value='';ctx.readXlsx=partReadBefore;ctx.partArchiveBefore=partArchiveBefore;vm.runInContext('archive=JSON.parse(window.partArchiveBefore);state=archive.terms[archive.active];save();render()',ctx);await ctx.RegistryCloud.persist();ctx.PartScope.change('all');ctx.Operation.clear();
+console.log('PASS Part selector scopes ratios, QA and completions; mandatory import Part, preview-change guard, saved Part metadata and cross-Part group rejection.');
+
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
