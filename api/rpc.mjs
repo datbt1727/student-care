@@ -115,7 +115,7 @@ export default async function handler(req,res){
  await audit(c,s.username,'account_updated',JSON.stringify({username,role:p.role,active:p.active,permissions}));
  });result={message:'Đã lưu tài khoản. Các phiên cũ của người được chỉnh sửa đã được thu hồi; cần đăng nhập lại.'};break;
  }
- case 'artifact':if(p.kind==='input')permit('importData');else if(p.kind==='restore')permit('restoreData');else if(p.kind!=='export')throw fail('Loại file không hợp lệ.');await audit(db(),s.username,p.kind==='input'?'import_processed':p.kind==='restore'?'restore_processed':'export_requested');result={url:'',id:'processed-client-side',message:'File được xử lý trên thiết bị; dữ liệu đã lưu Neon. Không lưu file gốc.'};break;
+ case 'artifact':if(p.kind==='input')permit('importData');else if(p.kind==='restore')permit('restoreData');else if(p.kind!=='export')throw fail('Loại file không hợp lệ.');if(p.kind!=='export'&&(!Number.isSafeInteger(p.size)||p.size<0||p.size>=10000000))throw fail('File nhập phải nhỏ hơn 10 MB.',413);await audit(db(),s.username,p.kind==='input'?'import_processed':p.kind==='restore'?'restore_processed':'export_requested');result={url:'',id:'processed-client-side',message:'File được xử lý trên thiết bị; dữ liệu đã lưu Neon. Không lưu file gốc.'};break;
  case 'backup':permit('backupData');await rate('backup',1,900);result=await backup({force:true});break;
  case 'repairMirror':admin();result=await health();break;
  case 'previewStudentDeletion':permit('deleteData');{const r=(await db().query('SELECT * FROM sc_archive WHERE id=1')).rows[0];const plan=StudentDeletion.plan(decrypt(r.cipher,'archive'),p);result={...plan,revision:r.revision,planToken:encrypt({plan,revision:r.revision,username:s.username,expires:Date.now()+300000},'delete-plan')};}break;

@@ -13,7 +13,8 @@
     "admin:create": "node scripts/admin.mjs",
     "backup": "node scripts/backup.mjs",
     "backup:verify": "node scripts/verify-backup.mjs",
-    "audit": "npm audit --omit=dev"
+    "audit": "npm audit --omit=dev",
+    "security:check": "node scripts/security-check.mjs && npm audit --omit=dev"
   },
   "dependencies": {
     "pg": "8.23.1",

@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {scanText,check} from '../scripts/security-check.mjs';
+test('public secret scanner detects credential patterns without returning the sensitive value',()=>{const value='DATA_KEY="'+'A'.repeat(43)+'="';assert.deepEqual(scanText(value),['embedded-server-key']);assert(!JSON.stringify(scanText(value)).includes('AAAA'));assert.deepEqual(scanText("process.env.DATA_KEY; headers['x-sc-request']='1'"),[]);});
+test('built public files and security headers pass the pre-release checks',async()=>{const r=await check(new URL('../',import.meta.url).pathname);assert(r.publicFilesChecked>0);assert.deepEqual(r.issues,[]);});

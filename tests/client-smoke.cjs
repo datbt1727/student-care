@@ -355,11 +355,11 @@ vm.runInContext('render()',ctx);q('#queue-toggle-compose').click();assert.equal(
 console.log('PASS compact two-tab layout folds common input without deleting it or moving bulk save/completion away from selection.');
 // Queue percentage filter and selected-row bulk actions.
 const percentChoices=()=>[...q('#queue-percent').querySelectorAll('option')].map(n=>n.value);
-q('#queue-course').value='M1';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
-q('#queue-percent').value='60';q('#queue-percent').onchange();
-q('#queue-course').value='M2';q('#queue-course').onchange();assert.equal(q('#queue-percent').value,'');assert(percentChoices().includes('20'));assert(!percentChoices().includes('60'));
-q('#queue-severity').value='over';q('#queue-severity').onchange();assert.equal(q('#queue-course').value,'');assert(![...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='M2'));assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
-q('#queue-course').value='';q('#queue-course').onchange();assert(percentChoices().includes('60'));assert(!percentChoices().includes('20'));
+q('#queue-course').value='M1';q('#queue-course').onchange();assert(percentChoices().includes('60,00'));assert(!percentChoices().includes('20,00'));
+q('#queue-percent').value='60,00';q('#queue-percent').onchange();
+q('#queue-course').value='M2';q('#queue-course').onchange();assert.equal(q('#queue-percent').value,'');assert(percentChoices().includes('20,00'));assert(!percentChoices().includes('60,00'));
+q('#queue-severity').value='over';q('#queue-severity').onchange();assert.equal(q('#queue-course').value,'');assert(![...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='M2'));assert(percentChoices().includes('60,00'));assert(!percentChoices().includes('20,00'));
+q('#queue-course').value='';q('#queue-course').onchange();assert(percentChoices().includes('60,00'));assert(!percentChoices().includes('20,00'));
 q('#queue-severity').value='all';q('#queue-severity').onchange();
 assert(q('#queue-save-all').closest('.queue-selection-bar'));assert(!q('#queue-save-all').closest('.queue-filters'));
 assert(q('#queue-apply-note').closest('.queue-compose'));
@@ -374,7 +374,7 @@ selectionCheck.checked=false;selectionCheck.onchange();
 
 console.log('PASS dependent percentage options follow severity/course and clear stale selections; compact grouped controls preserve row selection.');
 
-q('#queue-percent').value='60';q('#queue-percent').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));
+q('#queue-percent').value='60,00';q('#queue-percent').onchange();assert(q('#queue-items').textContent.includes('QOVER'));assert(!q('#queue-items').textContent.includes('QNEAR'));
 q('#queue-percent').value='';q('#queue-percent').onchange();assert([...q('#queue-items').querySelectorAll('[data-queue-student]')].every(b=>b.textContent==='Xem hồ sơ'));
 function selectQueue(id,subject){const n=[...q('#queue-items').querySelectorAll('[data-queue-select]')].find(n=>{const a=JSON.parse(n.dataset.queueSelect);return a[1]===id&&a[2]===subject});assert(n);n.checked=true;n.onchange();}
 selectQueue('QOVER','M1');selectQueue('QNEAR','M2');
@@ -433,7 +433,7 @@ q('#queue-view-completed').click();assert(!q('#queue-items [data-completed-stude
 q('#queue-view-current').click();ctx.fetch=quickFetch;const autoAudit=vm.runInContext('state.followAudit.length',ctx);await quickSave(quickInput('QAUTO','MX')).click();
 assert(!quickInput('QAUTO','MX'));assert.equal(vm.runInContext('state.followAudit.length',ctx),autoAudit);
 q('#queue-view-completed').click();assert(q('#queue-items [data-completed-student="QAUTO"]'));assert(q('#queue-items').textContent.includes('Đã liên hệ sinh viên'));
-q('#queue-severity').value='near';q('#queue-severity').onchange();assert([...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='MX'));q('#queue-course').value='MX';q('#queue-course').onchange();q('#queue-percent').value='20';q('#queue-percent').onchange();assert(q('#queue-items [data-completed-student="QAUTO"]'));
+q('#queue-severity').value='near';q('#queue-severity').onchange();assert([...q('#queue-course').querySelectorAll('option')].some(n=>n.value==='MX'));q('#queue-course').value='MX';q('#queue-course').onchange();q('#queue-percent').value='20,00';q('#queue-percent').onchange();assert(q('#queue-items [data-completed-student="QAUTO"]'));
 assert(!q('#queue-items [data-queue-resolve]'));assert(!q('#queue-items [data-queue-save]'));
 // All missing-data rows can be acknowledged without inventing notes or attendance.
 q('#queue-severity').value='all';q('#queue-course').value='';q('#queue-percent').value='';q('#queue-view-current').click();
@@ -447,9 +447,9 @@ assert.equal(vm.runInContext('JSON.stringify(state.records)',ctx),beforeMissingR
 q('#queue-view-completed').click();q('#queue-severity').value='missing';q('#queue-severity').onchange();assert(q('#queue-items [data-completed-student="NM0"]'));assert(q('#queue-items').textContent.includes('Không có ghi chú.'));
 // A corrected same-day ratio reopens current queue but preserves historical 20%.
 q('#queue-severity').value='all';q('#queue-view-current').click();vm.runInContext("state.records.find(r=>r.id==='QAUTO').absent=3;save();render()",ctx);await ctx.RegistryCloud.persist();ctx.ConsoleLayout.notifications();assert(quickInput('QAUTO','MX'));
-q('#queue-view-completed').click();const completedAuto=q('#queue-items [data-completed-student="QAUTO"]');assert(completedAuto.textContent.includes('20%'));assert(completedAuto.textContent.includes('cần xử lý lại'));
+q('#queue-view-completed').click();const completedAuto=q('#queue-items [data-completed-student="QAUTO"]');assert(completedAuto.textContent.includes('20,00%'));assert(completedAuto.textContent.includes('cần xử lý lại'));
 q('#queue-view-current').click();const resolveAuto=[...q('#queue-items').querySelectorAll('[data-queue-resolve]')].find(b=>JSON.parse(b.dataset.queueResolve)[1]==='QAUTO');await resolveAuto.click();assert(!quickInput('QAUTO','MX'));
-q('#queue-view-completed').click();assert(q('#queue-items [data-completed-student="QAUTO"]').textContent.includes('30%'));
+q('#queue-view-completed').click();assert(q('#queue-items [data-completed-student="QAUTO"]').textContent.includes('30,00%'));
 const beforeCompletedView=requests.filter(r=>r.action==='save').length;ctx.StudentPermissions.setUser({role:'staff',permissions:{}});ctx.ConsoleLayout.notifications();assert(q('#queue-items [data-completed-student="QAUTO"]'));assert(!q('#queue-items [data-queue-save]'));ctx.StudentPermissions.setUser(user);ctx.ConsoleLayout.notifications();assert.equal(requests.filter(r=>r.action==='save').length,beforeCompletedView);
 q('#queue-view-current').click();q('#queue-severity').value='all';q('#queue-course').value='';q('#queue-percent').value='';ctx.ConsoleLayout.notifications();
 console.log('PASS save-and-complete only after receipt; completed filters/read-only history; missing bulk completion without fake attendance; same-day correction reopens and completes again.');
@@ -459,7 +459,7 @@ console.log('PASS warning-level queue filters preserve totals and selection with
 // Part scopes never combine two attempts of the same course.
 const partArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx),partReadBefore=ctx.readXlsx;
 q('#detail').close();
-vm.runInContext("state.students=[{id:'PARTSV',name:'Retake student',categories:[]}];state.records=[{id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'A',group:'P1-G',date:'2026-09-01',start:'2026-09-01',end:'2026-10-31',absent:20,slots:40,part:1},{id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'A',group:'P2-G',date:'2026-10-31',start:'2026-10-31',end:'2026-12-31',absent:1,slots:40,part:2}];state.dailyFollow={p1:{id:'PARTSV',subject:'A',group:'P1-G',term:state.termLabel,date:'2026-09-01',status:'resolved',note:'Old Part one note',resolvedAttendance:{date:'2026-09-01',absent:20,slots:40}}};state.followAudit=[];state.importFiles=[{id:'part-fixture',name:'parts.xlsx',date:'2026-10-31',records:JSON.parse(JSON.stringify(state.records)),deleted:false}];state.asof='2026-10-31';save();render()",ctx);await ctx.RegistryCloud.persist();
+vm.runInContext("state.students=[{id:'PARTSV',name:'Retake student',categories:[]}];state.courseCatalog=[{subject:'A',name:'Course A'},{subject:'OLD',name:'Old course'}];state.records=[{id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'A',group:'P1-G',date:'2026-09-01',start:'2026-09-01',end:'2026-10-31',absent:20,slots:40,part:1},{id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'A',group:'P2-G',date:'2026-10-31',start:'2026-10-31',end:'2026-12-31',absent:1,slots:40,part:2}];state.dailyFollow={p1:{id:'PARTSV',subject:'A',group:'P1-G',term:state.termLabel,date:'2026-09-01',status:'resolved',note:'Old Part one note',resolvedAttendance:{date:'2026-09-01',absent:20,slots:40}}};state.followAudit=[];state.importFiles=[{id:'part-fixture',name:'parts.xlsx',date:'2026-10-31',records:JSON.parse(JSON.stringify(state.records)),deleted:false}];state.asof='2026-10-31';save();render()",ctx);await ctx.RegistryCloud.persist();
 assert(ctx.PartScope.change('2'));assert.deepEqual(Array.from(vm.runInContext('rowsNow().map(r=>r.raw)',ctx)),[2.5]);assert(!vm.runInContext('JSON.stringify(reportModel())',ctx).includes('Old Part one note'));
 const partQA=vm.runInContext('qaFollowTable()',ctx)[0];assert(partQA.rows[0].some(v=>String(v).includes('Part 2 · A')));assert(!partQA.rows[0].some(v=>String(v).includes('P1-G')));
 q('#queue-view-completed').click();assert(!q('#queue-items').textContent.includes('Old Part one note'));assert(ctx.PartScope.change('1'));q('#queue-view-completed').click();assert(q('#queue-items').textContent.includes('Old Part one note'));
@@ -471,7 +471,7 @@ const partHeads=['Semester','GroupName','SubjectCode','RollNumber','NumberOfSlot
 ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','NEW-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];
 q('#attendance-part').value='2';await q('#upload-attendance').click();assert(q('#review-guidance').textContent.includes('Part 2'));q('#attendance-part').value='1';await q('#review-confirm').click();assert(q('#review-guidance').textContent.includes('Part'));assert(!vm.runInContext("state.records.some(r=>r.group==='NEW-G')",ctx));
 q('#attendance-part').value='2';await q('#upload-attendance').click();await q('#review-confirm').click();assert(vm.runInContext("state.records.some(r=>r.group==='NEW-G'&&r.part===2)",ctx));assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='NEW-G').part,2);
-ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','P1-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];q('#attendance-part').value='2';await q('#upload-attendance').click();assert.equal(ctx.Operation.status,'error');assert(q('#op-message').textContent.includes('Part 1'));
+ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','P1-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];q('#attendance-part').value='2';await q('#upload-attendance').click();assert(q('#review-confirm').disabled);assert(q('#review-table').textContent.includes('Part 1'));q('#review-close').click();
 q('#attendance-files').files=[];ctx.Operation.clear();
 vm.runInContext("const legacyRow={id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'OLD',group:'LEGACY-G',date:'2026-09-01',start:'2026-09-01',end:'2026-10-31',absent:8,slots:40};state.records.push(legacyRow);state.importFiles.push({id:'legacy-part-file',name:'old.xlsx',date:'2026-09-01',records:[{...legacyRow}],deleted:false});save();render()",ctx);await ctx.RegistryCloud.persist();vm.runInContext('render()',ctx);
 assert(!q('#part-assign-legacy').hidden);await q('#part-assign-legacy').click();assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='LEGACY-G').part,1);assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='LEGACY-G').absent,8);assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='P2-G').part,2);assert.equal(ctx.PartScope.selected(),'1');assert(q('#part-assign-legacy').hidden);
