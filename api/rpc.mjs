@@ -57,7 +57,7 @@ export default async function handler(req,res){
  if(!s?.active)throw fail('Phiên đã hết hạn hoặc tài khoản bị khóa.',401);
  if(action!=='resume'&&!equal(req.headers['x-sc-csrf'],s.csrf))throw fail('Phiên không hợp lệ. Đăng nhập lại.',403);
  await rate('user:'+s.username,120,60);
- await db().query('UPDATE sc_sessions SET last_seen=now() WHERE token_hash=$1',[digest(raw)]);
+ await db().query("UPDATE sc_sessions SET last_seen=now() WHERE token_hash=$1 AND last_seen<now()-interval '60 seconds'",[digest(raw)]);
  if(action==='logout'){await db().query('DELETE FROM sc_sessions WHERE token_hash=$1',[digest(raw)]);cookie(res,'',0);return res.json({ok:true,data:{message:'Đã đăng xuất.'}});}
  if(action==='resume'){const data={user:publicUser(s),csrf:s.csrf,token:'cookie'};if(p.includeWorkspace===true&&!s.must_change&&!s.pending){try{data.workspace=await workspaceFor(s)}catch(e){data.workspaceUnavailable=true}}return res.json({ok:true,data});}
  if(action==='changePassword'){

@@ -483,6 +483,16 @@ console.log('PASS whole-semester group classification persists; both Parts show 
 q('#attendance-files').files=[];q('#attendance-part').value='';ctx.readXlsx=partReadBefore;ctx.partArchiveBefore=partArchiveBefore;vm.runInContext('archive=JSON.parse(window.partArchiveBefore);state=archive.terms[archive.active];save();render()',ctx);await ctx.RegistryCloud.persist();ctx.PartScope.change('all');ctx.Operation.clear();
 console.log('PASS Part selector scopes ratios, QA and completions; mandatory import Part, preview-change guard, saved Part metadata and cross-Part group rejection.');
 
+// Stored Excel values, not only cell display formats, round percentages at the export boundary.
+ctx.roundingFixture=[{name:'Rounding',headerRow:1,rows:[['% vắng','Tỷ lệ vắng','Ghi chú'],[{type:'points',value:12.8571428571429},{type:'percent',value:0.128571428571429},'Giữ nội dung 12.8571428571429']]}];
+const roundingBefore=JSON.stringify(ctx.roundingFixture);
+const roundedZip=await ctx.JSZip.loadAsync(await vm.runInContext('makeXlsx(roundingFixture)',ctx));
+const roundedXml=await roundedZip.file('xl/worksheets/sheet1.xml').async('string');
+assert(roundedXml.includes('<v>12.86</v>'));assert(roundedXml.includes('<v>0.1286</v>'));
+assert(!roundedXml.includes('<v>12.8571428571429</v>'));assert.equal(JSON.stringify(ctx.roundingFixture),roundingBefore);
+assert(roundedXml.includes('Giữ nội dung 12.8571428571429'));
+console.log('PASS Excel stored percent values round to two displayed percentage decimals without modifying archive/report input or note text.');
+
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};

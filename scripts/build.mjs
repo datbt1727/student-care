@@ -21,4 +21,19 @@ const csp="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inlin
 const headers=[['Content-Security-Policy',csp],['Strict-Transport-Security','max-age=63072000; includeSubDomains'],['X-Content-Type-Options','nosniff'],['X-Frame-Options','DENY'],['Referrer-Policy','no-referrer'],['Permissions-Policy','camera=(), microphone=(), geolocation=()'],['X-Robots-Tag','noindex, nofollow, noarchive'],['Cache-Control','no-store']];
 const config={version:2,regions:['sin1'],buildCommand:'npm run build',outputDirectory:'dist',functions:{'api/*.mjs':{maxDuration:60}},headers:[{source:'/(.*)',headers:headers.map(([key,value])=>({key,value}))},{source:'/assets/immutable/(.*)',headers:[{key:'Cache-Control',value:'public, max-age=31536000, immutable'}]}],crons:[{path:'/api/backup',schedule:'0 17 * * *'}]};
 await fs.writeFile(new URL('../vercel.json',import.meta.url),JSON.stringify(config,null,2));
+// Remove only generated JavaScript no longer referenced by the completed build.
+// Never touches source, uploaded data, backups or unrelated asset files.
+const current=new Set(scripts.map(([name])=>name));
+const immutable=new URL('../dist/assets/immutable/',import.meta.url);
+for(const dir of await fs.readdir(immutable,{withFileTypes:true})){
+ if(!dir.isDirectory()||! /^[a-f0-9]{16}$/.test(dir.name))continue;
+ const folder=new URL(dir.name+'/',immutable);
+ for(const entry of await fs.readdir(folder,{withFileTypes:true})){
+  if(entry.isFile()&&/^app-\d+\.js$/.test(entry.name)&&!current.has('immutable/'+dir.name+'/'+entry.name))await fs.unlink(new URL(entry.name,folder));
+ }
+ if(!(await fs.readdir(folder)).length)await fs.rmdir(folder);
+}
+for(const entry of await fs.readdir(new URL('../dist/assets/',import.meta.url),{withFileTypes:true})){
+ if(entry.isFile()&&/^app-\d+\.js$/.test(entry.name))await fs.unlink(new URL('../dist/assets/'+entry.name,import.meta.url));
+}
 console.log('Built',scripts.length,'local scripts. No external script/CDN.');
