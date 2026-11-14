@@ -2867,3 +2867,50 @@ body.console-ui .sc-preview-pages button:disabled{opacity:.4}
  page=function(id){previous(id);if(id===last)return;last=id;const el=document.getElementById(id);if(el){el.classList.remove('sc-tab-enter');void el.offsetWidth;el.classList.add('sc-tab-enter');}};
 })();
 </script>
+
+<style id="sc-layout-v514">
+body.console-ui .console-header{display:flex!important;flex-wrap:wrap!important;gap:10px 16px!important;padding:14px 20px!important;align-items:center!important}
+body.console-ui .console-header>div:first-child{flex:0 1 auto;min-width:0}
+body.console-ui .console-header h1{font-size:22px!important;line-height:1.25!important;white-space:normal!important;margin:0!important}
+body.console-ui .console-header .global-student-search{flex:1 1 240px!important;min-width:180px!important;max-width:420px!important;width:auto!important}
+body.console-ui .console-header .header-right{margin-left:auto!important;display:flex!important;flex:0 1 auto!important;gap:10px!important;flex-wrap:wrap!important;min-width:0!important}
+body.console-ui .console-header .cloud-toolbar{max-width:100%;gap:10px!important}
+body.console-ui .console-header #cloud-state{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px!important}
+body.console-ui .sc-scope-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:0 0 12px;padding:10px 0;border-bottom:1px solid #dce5ed}
+body.console-ui .sc-scope-field{display:flex!important;align-items:center!important;gap:8px!important;margin:0!important;font-size:12px!important;font-weight:600!important;white-space:nowrap}
+body.console-ui .sc-scope-toolbar #term-switch,body.console-ui .sc-scope-toolbar #part-switch{width:150px!important;min-width:130px!important;max-width:100%!important;height:38px!important;padding:7px 10px!important;font-size:13px!important}
+body.console-ui .sc-scope-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
+body.console-ui .sc-scope-actions #part-full-groups,body.console-ui .sc-scope-actions #part-assign-legacy{margin:0!important;padding:8px 12px!important;font-size:12px!important;min-height:36px}
+body.console-ui #part-context{position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;padding:0!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important}
+body.console-ui .console-secondary-tabs{min-height:0!important;padding-top:8px!important;padding-bottom:8px!important;gap:8px!important;margin-bottom:0!important;flex-wrap:wrap!important}
+body.console-ui .console-local-tabs{margin:0 0 12px!important;padding:4px!important;gap:4px!important;flex-wrap:wrap!important}
+body.console-ui .console-local-tab{padding:8px 12px!important;min-height:34px!important}
+body.console-ui .cards{gap:12px!important;margin-bottom:14px!important}
+body.console-ui .card{min-height:68px!important;padding:12px 16px!important}
+body.console-ui .results .panel-heading{display:flex!important;align-items:center!important;flex-wrap:wrap!important;gap:10px!important;padding-bottom:12px!important}
+body.console-ui .results .filters{display:flex;flex-wrap:wrap;gap:8px!important}
+body.console-ui .sc-global-credit{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:6px 12px}
+body.console-ui .sc-global-credit .sc-copyright{font-weight:600;color:#47617a}
+@media(max-width:760px){
+ body.console-ui .console-header{padding:12px 14px!important;gap:10px!important}
+ body.console-ui .console-header h1{font-size:20px!important}
+ body.console-ui .console-header .global-student-search{order:3!important;flex-basis:100%!important;max-width:none!important;min-width:0!important}
+ body.console-ui .console-header #cloud-state{display:none!important}
+ body.console-ui .sc-scope-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px 0}
+ body.console-ui .sc-scope-field{display:grid!important;gap:4px!important;min-width:0}
+ body.console-ui .sc-scope-toolbar #term-switch,body.console-ui .sc-scope-toolbar #part-switch{width:100%!important;min-width:0!important}
+ body.console-ui .sc-scope-actions{grid-column:1/-1;margin-left:0}
+ body.console-ui .console-local-tab{font-size:12px!important;padding:7px 10px!important}
+}
+</style>
+<script>
+(function(){
+ const q=s=>document.querySelector(s),content=q('#workspace-content');
+ const bar=document.createElement('div');bar.className='sc-scope-toolbar';bar.setAttribute('role','group');bar.setAttribute('aria-label','Phạm vi dữ liệu');
+ const term=document.createElement('label');term.className='sc-scope-field';const caption=document.createElement('span');caption.textContent='Học kỳ';term.append(caption,q('#term-switch'));
+ const part=q('.sc-part-control');part.classList.add('sc-scope-field');
+ const actions=document.createElement('div');actions.className='sc-scope-actions';actions.append(q('#part-full-groups'),q('#part-assign-legacy'));
+ bar.append(term,part,actions);content.prepend(bar);
+ const credit=q('.sc-global-credit');if(credit){const copyright=document.createElement('span');copyright.className='sc-copyright';copyright.textContent='StudentCare © 2026';const powered=document.createElement('span');powered.textContent='Powered by DatBT13';credit.replaceChildren(copyright,powered);}
+})();
+</script>

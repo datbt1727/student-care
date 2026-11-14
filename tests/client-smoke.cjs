@@ -58,7 +58,7 @@ q('#registry-paste').value='MSSV\tHọ tên\tEmail\tMentor\nTEST001\tSinh viên 
 assert(saved.registry.students.TEST001);assert(requests.some(r=>r.action==='save'&&r.headers['X-SC-CSRF']==='test-csrf'));
 assert.equal(storage.size,0);assert.equal(q('#auth-password').value,'');
 
-assert.equal(q('.sc-login-credit').textContent,'Powered by DatBT13');assert.equal(q('.sc-global-credit').textContent,'Powered by DatBT13');assert.equal(q('#operation-status').parentElement,doc.body);
+assert.equal(q('.sc-login-credit').textContent,'Powered by DatBT13');assert.equal(q('.sc-global-credit').textContent,'StudentCare © 2026Powered by DatBT13');assert.equal(q('#operation-status').parentElement,doc.body);
 const importBar=q('#imports .console-local-tabs');
 assert.deepEqual(importBar.children.map(b=>b.textContent),['Hồ sơ tổng','Danh sách học kỳ','Danh mục môn','Điểm danh','Lịch sử nhập']);
 assert(q('#import-pane-master #registry-pane-import'));assert(q('#import-pane-history #import-batch-history'));assert(!q('.import-shortcuts'));
@@ -87,7 +87,7 @@ const importBadge=q('button[data-console-page="imports"] .tab-badge');assert(imp
 vm.runInContext("Operation.clear();Operation.fail('Sự cố chưa xác định.');",ctx);assert(importBadge.hidden,'generic client errors do not create import notifications');
 vm.runInContext('Operation.clear()',ctx);
 // Internal footer and dismissal of the account menu are independent of data edits.
-assert.equal(q('.sc-global-credit').textContent,'Powered by DatBT13');
+assert.equal(q('.sc-global-credit').textContent,'StudentCare © 2026Powered by DatBT13');
 assert.equal(q('.sc-global-credit').parentElement,q('.workspace-frame>main'),'credit follows page content inside main');
 assert(html.includes('position:static!important;text-align:center!important;background:transparent!important;border:0!important;box-shadow:none!important'));
 const accountMenu=q('.account-menu');assert(accountMenu);accountMenu.open=true;
@@ -493,6 +493,12 @@ assert(!roundedXml.includes('<v>12.8571428571429</v>'));assert.equal(JSON.string
 assert(roundedXml.includes('Giữ nội dung 12.8571428571429'));
 console.log('PASS Excel stored percent values round to two displayed percentage decimals without modifying archive/report input or note text.');
 
+assert.equal(q('#term-switch').closest('.sc-scope-toolbar'),q('.sc-scope-toolbar'));
+assert.equal(q('#part-switch').closest('.sc-scope-toolbar'),q('.sc-scope-toolbar'));
+assert.equal(q('#part-full-groups').closest('.sc-scope-actions'),q('.sc-scope-actions'));
+assert.equal(doc.querySelectorAll('#term-switch').length,1);assert.equal(doc.querySelectorAll('#part-switch').length,1);
+assert.equal(q('.sc-copyright').textContent,'StudentCare © 2026');
+console.log('PASS compact scope toolbar moves existing functional controls without duplication and adds inline copyright.');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
