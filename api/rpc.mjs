@@ -6,6 +6,8 @@ import {fail,assertOrigin,hashPassword,verifyPassword,opaque,digest,equal,encryp
 import {backup} from '../lib/backup.mjs';
 import {normalizePermissions,requirePermission,hasPermission,canWrite,authorizeArchive} from '../lib/permissions.mjs';
 import StudentDeletion from '../lib/deletion.cjs';
+import studyReview from '../lib/study-review.cjs';
+import {studyEnabled,requireStudyStaging,previewDecision,openDecisionTicket,applyDecision,preserveDecisions,cancelDecision,checkpointDecision} from '../lib/study-decision-service.mjs';
 const COOKIE='__Host-sc';
 const audit=(c,u,a,d='')=>c.query('INSERT INTO sc_audit(actor,action,detail) VALUES($1,$2,$3)',[u,a,d]);
 const cookie=(res,value,age)=>res.setHeader('Set-Cookie',COOKIE+'='+value+'; Path=/; Secure; HttpOnly; SameSite=Strict'+(age===null?'':'; Max-Age='+age));
@@ -55,7 +57,7 @@ export default async function handler(req,res){
  const raw=parseCookie(req);if(!raw)throw fail('Vui lòng đăng nhập.',401);
  const s=(await db().query("SELECT s.*,u.display_name,u.role,u.active,u.must_change,u.password_hash,u.permissions FROM sc_sessions s JOIN sc_users u USING(username) WHERE token_hash=$1 AND expires_at>now() AND ((s.remember AND last_seen>now()-interval '24 hours') OR (NOT s.remember AND last_seen>now()-interval '60 minutes'))",[digest(raw)])).rows[0];
  if(!s?.active)throw fail('Phiên đã hết hạn hoặc tài khoản bị khóa.',401);
- if(action!=='resume'&&!equal(req.headers['x-sc-csrf'],s.csrf))throw fail('Phiên không hợp lệ. Đăng nhập lại.',403);
+ if(action!=='resume'&&!equal(req.headers['x-sc-csrf'],s.csrf))throw Object.assign(fail('Phiên không hợp lệ. Đăng nhập lại.',403),{publicCode:typeof req.headers['x-sc-csrf']==='string'&&req.headers['x-sc-csrf']?'CSRF_MISMATCH':'CSRF_MISSING'});
  await rate('user:'+s.username,120,60);
  await db().query("UPDATE sc_sessions SET last_seen=now() WHERE token_hash=$1 AND last_seen<now()-interval '60 seconds'",[digest(raw)]);
  if(action==='logout'){await db().query('DELETE FROM sc_sessions WHERE token_hash=$1',[digest(raw)]);cookie(res,'',0);return res.json({ok:true,data:{message:'Đã đăng xuất.'}});}
@@ -86,9 +88,37 @@ export default async function handler(req,res){
  if(!locked)throw fail('Chưa có dữ liệu.',503);if(locked.revision!==p.revision)throw fail('Dữ liệu đã được người khác thay đổi. Tải lại trước khi lưu.',409);
  // Admin authorization has no dependency on the old document. Staff still use
  // the locked current archive for the full field-by-field permission check.
- if(s.role!=='admin'){const current=(await c.query('SELECT cipher FROM sc_archive WHERE id=1')).rows[0];authorizeArchive(s,decrypt(current.cipher,'archive'),a,p);}
+ if(s.role!=='admin'||studyEnabled()){const current=(await c.query('SELECT cipher FROM sc_archive WHERE id=1')).rows[0];if(studyEnabled())preserveDecisions(decrypt(current.cipher,'archive'),a);if(s.role!=='admin')authorizeArchive(s,decrypt(current.cipher,'archive'),a,p);}
  const r=await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1 AND revision=$2 RETURNING revision',[encrypt(a,'archive'),p.revision]);if(!r.rowCount)throw fail('Dữ liệu đã được người khác thay đổi. Tải lại trước khi lưu.',409);
  await c.query('INSERT INTO sc_requests(username,request_id,revision,request_hash) VALUES($1,$2,$3,$4)',[s.username,p.requestId,r.rows[0].revision,requestHash]);await audit(c,s.username,'workspace_saved','revision='+r.rows[0].revision);return {revision:r.rows[0].revision,receipt:receipt(r.rows[0].revision),warning:''};});try{result.info=await health()}catch(e){result.healthUnavailable=true}break;}
+ case 'studyReview':{
+ admin();
+ if(!Number.isSafeInteger(p.revision)||p.revision<1||typeof p.termId!=='string'||Object.keys(p).some(k=>!['revision','termId','offset','limit'].includes(k)))throw fail('Yêu cầu đối chiếu không hợp lệ.');
+ result=await transaction(async c=>{
+  await c.query('SET TRANSACTION READ ONLY');
+  const row=(await c.query('SELECT revision,cipher FROM sc_archive WHERE id=1')).rows[0];
+  if(!row||row.revision!==p.revision)throw fail('Dữ liệu đã thay đổi. Tải mới trước khi đối chiếu.',409);
+  const term=decrypt(row.cipher,'archive').terms?.[p.termId];if(!term)throw fail('Học kỳ không tồn tại.');
+  let report;try{report=studyReview(term,{offset:p.offset??0,limit:p.limit??50});}catch{throw fail('Phạm vi trang đối chiếu không hợp lệ.');}
+  return {revision:row.revision,termId:p.termId,...report,decisions:(term.studyDecisions||[]).slice(-200).map(d=>({id:d.id,studentId:d.studentId,subject:d.subject,kind:d.kind,status:d.status,source:d.source,target:d.target,at:d.at,actor:d.actor})),decisionEditing:studyEnabled()};
+ });break;
+ }
+ case 'previewStudyDecision':{
+ admin();requireStudyStaging();result=await transaction(async c=>{await c.query('SET TRANSACTION READ ONLY');const row=(await c.query('SELECT revision,cipher FROM sc_archive WHERE id=1')).rows[0];if(!row||row.revision!==p.revision)throw fail('Dữ liệu đã thay đổi. Tải mới trước khi đối chiếu.',409);return previewDecision(decrypt(row.cipher,'archive'),p,s.username);});break;
+ }
+ case 'commitStudyDecision':{
+ admin();requireStudyStaging();const {ticket,requestHash}=openDecisionTicket(p,s.username);
+ result=await transaction(async c=>{await assertActor(c);const row=(await c.query('SELECT revision,cipher FROM sc_archive WHERE id=1 FOR UPDATE')).rows[0],prior=(await c.query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,p.requestId])).rows[0];
+ const receipt=revision=>({committed:true,requestId:p.requestId,requestHash,revision});
+ if(prior){if(prior.request_hash!==requestHash)throw fail('Mã xác nhận đã dùng cho nội dung khác.',409);return {revision:prior.revision,receipt:receipt(prior.revision),decisionId:ticket.decision.id};}
+ if(!row||row.revision!==ticket.revision)throw fail('Dữ liệu đã thay đổi. Xem trước lại trước khi xác nhận.',409);
+ const a=applyDecision(decrypt(row.cipher,'archive'),ticket);await checkpointDecision(row);const r=await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1 AND revision=$2 RETURNING revision',[encrypt(a,'archive'),row.revision]);if(!r.rowCount)throw fail('Dữ liệu đã thay đổi. Chưa ghi đè.',409);
+ await c.query('INSERT INTO sc_requests(username,request_id,revision,request_hash) VALUES($1,$2,$3,$4)',[s.username,p.requestId,r.rows[0].revision,requestHash]);await audit(c,s.username,'study_decision_saved',JSON.stringify({term:ticket.termId,decisionId:ticket.decision.id,kind:ticket.decision.kind,revision:r.rows[0].revision}));return {revision:r.rows[0].revision,receipt:receipt(r.rows[0].revision),decisionId:ticket.decision.id};});break;
+ }
+ case 'cancelStudyDecision':{
+ admin();requireStudyStaging();if(!Number.isSafeInteger(p.revision)||typeof p.termId!=='string'||typeof p.decisionId!=='string'||p.confirmation!==p.decisionId||!/^[\w-]{8,100}$/.test(p.requestId||'')||Object.keys(p).some(k=>!['revision','termId','decisionId','confirmation','requestId'].includes(k)))throw fail('Yêu cầu hoàn tác không hợp lệ.');const requestHash=digest(JSON.stringify(['cancel-study',p.revision,p.termId,p.decisionId]));
+ result=await transaction(async c=>{await assertActor(c);const row=(await c.query('SELECT revision,cipher FROM sc_archive WHERE id=1 FOR UPDATE')).rows[0],prior=(await c.query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,p.requestId])).rows[0],receipt=revision=>({committed:true,requestId:p.requestId,requestHash,revision});if(prior){if(prior.request_hash!==requestHash)throw fail('Mã yêu cầu đã được dùng cho nội dung khác.',409);return {revision:prior.revision,receipt:receipt(prior.revision)};}if(!row||row.revision!==p.revision)throw fail('Dữ liệu đã thay đổi. Tải mới trước khi hoàn tác.',409);const a=cancelDecision(decrypt(row.cipher,'archive'),p.termId,p.decisionId,s.username);await checkpointDecision(row);const r=await c.query('UPDATE sc_archive SET cipher=$1,revision=revision+1,updated_at=now() WHERE id=1 AND revision=$2 RETURNING revision',[encrypt(a,'archive'),row.revision]);if(!r.rowCount)throw fail('Dữ liệu đã thay đổi. Chưa hoàn tác.',409);await c.query('INSERT INTO sc_requests(username,request_id,revision,request_hash) VALUES($1,$2,$3,$4)',[s.username,p.requestId,r.rows[0].revision,requestHash]);await audit(c,s.username,'study_decision_cancelled',JSON.stringify({term:p.termId,decisionId:p.decisionId,revision:r.rows[0].revision}));return {revision:r.rows[0].revision,receipt:receipt(r.rows[0].revision)};});break;
+ }
  case 'health':result=await health();break;
  case 'job':{const r=(await db().query('SELECT revision,request_hash FROM sc_requests WHERE username=$1 AND request_id=$2',[s.username,String(p.requestId||'')])).rows[0];result=r?{status:'done',percent:100,message:'Đã ghi nhận giao dịch lưu.',revision:r.revision}:{status:'unknown',message:'Chưa có xác nhận giao dịch lưu.'};break;}
  case 'logs':permit('viewLogs');result=(await db().query('SELECT * FROM sc_audit ORDER BY id DESC LIMIT 200')).rows.map(r=>[r.at,r.actor,r.action,'Đã ghi nhận',r.detail,'']);break;
@@ -123,5 +153,5 @@ export default async function handler(req,res){
  default:throw fail('Chức năng không được hỗ trợ.',400);
  }
  res.json({ok:true,data:result});
- }catch(e){const status=e.status||(e.code==='23505'?409:500);if(status===500)console.error('StudentCare operation failed',e.code||e.name);if(status===429){e.retryAfter=Math.max(1,Math.min(900,Number(e.retryAfter)||5));res.setHeader('Retry-After',String(e.retryAfter))}res.status(status).json({ok:false,...(status===429?{retryAfter:e.retryAfter}:{}),code:status===401?'SESSION':String(status),error:status===500?'Máy chủ chưa xử lý được. Dữ liệu chưa xác nhận lưu; thử lại sau.':e.code==='23505'?'Tên tài khoản đã tồn tại.':e.message});}
+ }catch(e){const status=e.status||(e.code==='23505'?409:500);if(status===500)console.error('StudentCare operation failed',e.code||e.name);if(status===429){e.retryAfter=Math.max(1,Math.min(900,Number(e.retryAfter)||5));res.setHeader('Retry-After',String(e.retryAfter))}res.status(status).json({ok:false,...(status===429?{retryAfter:e.retryAfter}:{}),code:status===401?'SESSION':['CSRF_MISSING','CSRF_MISMATCH'].includes(e.publicCode)?e.publicCode:String(status),error:status===500?'Máy chủ chưa xử lý được. Dữ liệu chưa xác nhận lưu; thử lại sau.':e.code==='23505'?'Tên tài khoản đã tồn tại.':e.message});}
 }

@@ -9,3 +9,5 @@ dist/
 *.csv
 *.dump
 coverage/
+.staging-*.enc.json
+.staging-study-checkpoints/
