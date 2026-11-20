@@ -1,0 +1,29 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import D from '../lib/study-decisions.cjs';import Parts from '../lib/parts.cjs';import Import from '../lib/attendance-import.cjs';import Report from '../lib/report-index.cjs';import Queue from '../lib/queue-state.cjs';import Daily from '../lib/daily-changes.cjs';import {validateArchive} from '../lib/security.mjs';
+const row=(group,part,date,absent,slots=40)=>({id:'S',name:'Test',term:'FALL 2026',subject:'AEG116',group,part,date,absent,slots,start:'2026-09-01',end:'2026-12-31'});
+const base=()=>({termId:'2026-FALL',students:[{id:'S',name:'Test',email:'test@example.invalid'}],records:[row('SAME',1,'2026-10-01',10),row('SAME',2,'2026-11-18',2)],courseCatalog:[{subject:'AEG116',name:'Test subject'}],dailyFollow:{old:{id:'S',subject:'AEG116',group:'SAME',part:1,date:'2026-10-01',status:'resolved',note:'Old note',resolvedAttendance:{date:'2026-10-01',absent:10,slots:40}}},importFiles:[]});
+const choice={studentId:'S',subject:'AEG116',kind:'retake',source:{group:'SAME',part:1},target:{group:'SAME',part:2}};
+test('same subject/group reused in Part2: Part views, completion and QA Follow remain independent without rewriting source',()=>{
+ const t=base(),before=structuredClone(t),d=D.prepare(t,choice,'decision-123','admin');t.studyDecisions=[d];const p=D.project(t),old=p.records[0],fresh=p.records[1];
+ assert.equal(Parts.scope(t,'1').records[0].absent,10);assert.equal(Parts.scope(t,'2').records[0].absent,2);assert.notEqual(D.key(old),D.key(fresh));assert.equal(Queue.pending(p,[fresh],'2026-11-18').length,1);
+ t.dailyFollow.new={id:'S',subject:'AEG116',group:'SAME',date:'2026-11-18',attemptId:fresh.attemptId,attemptNumber:2,note:'New note'};
+ const projected=D.project(t),groups=Report.build(projected.records,Object.values(projected.dailyFollow)).get('AEG116');assert.equal(groups.size,2);assert.deepEqual(groups.get('SAME · Lượt 1').notes.get(JSON.stringify(['S','2026-10-01'])),['Old note']);assert.deepEqual(groups.get('SAME · Lượt 2').notes.get(JSON.stringify(['S','2026-11-18'])),['New note']);
+ assert.equal(D.followStorageKey(t,old,'2026-10-01'),'old');assert.equal(D.followStorageKey(t,fresh,'2026-10-01'),undefined);assert.deepEqual(t.records,before.records);validateArchive({version:2,active:'2026-FALL',terms:{'2026-FALL':t}});
+});
+test('retake import requires explicit attempt, enforces approved slots and duplicate import remains a no-op',()=>{
+ const t=base(),d=D.prepare(t,choice,'decision-123','admin');t.studyDecisions=[d];const next=row('SAME',2,'2026-11-19',3),file=r=>[{name:'fixture.xlsx',rows:[r]}];
+ assert.equal(Import.plan(t,file(next),2,'2026-FALL').rows.length,0);assert.equal(Import.plan(t,file({...next,attemptId:d.sourceAttempt.id}),2,'2026-FALL').rows.length,0);
+ const result=Import.plan(t,file({...next,attemptId:d.targetAttempt.id}),2,'2026-FALL');assert.equal(result.writeRows.length,1);assert.equal(result.rows[0].absent,3);assert.equal(result.rows[0].attemptNumber,2);D.validateNew(t,{...t,records:[...t.records,...result.rows]});
+ const updated={...t,records:[...t.records,...result.rows]};assert.equal(Import.plan(updated,file({...next,attemptId:d.targetAttempt.id}),2,'2026-FALL').writeRows.length,0);assert.equal(Import.plan(t,file({...next,slots:70,attemptId:d.targetAttempt.id}),2,'2026-FALL').rows.length,0);
+ assert.throws(()=>D.validateNew(t,{...t,records:[...t.records,{...next,attemptId:'other-student-attempt'}]}),/Mã lượt/);
+});
+test('confirmed transfer shares cumulative baseline across group and Part; unconfirmed rows do not merge',()=>{
+ const t=base();t.records=[row('OLD',1,'2026-10-01',7,70),row('NEW',2,'2026-11-18',15,70)];t.dailyFollow={};const d=D.prepare(t,{...choice,kind:'transfer',source:{group:'OLD',part:1},target:{group:'NEW',part:2},cumulativeConfirmed:true},'decision-123','admin');t.studyDecisions=[d];const p=Parts.scope(t,'2');assert.equal(new Set(p.records.map(D.key)).size,1);assert.equal(p.records.at(-1).absent,15);const report=Daily.changed({terms:{T:p}},'T','2026-11-18');assert.equal(report.rows.length,1);assert.equal(report.rows[0][7],'01/10/2026');assert.equal(report.rows[0][4].value,15/70*100);
+});
+test('future retake can reuse same group/Part only with an explicit disjoint range and never inherits old absence',()=>{
+ const t=base();t.records=[row('SAME',2,'2026-10-01',10)];t.dailyFollow={};const target={group:'SAME',part:2,planned:true,slots:40,from:'2026-11-01',to:'2026-12-31'},d=D.prepare(t,{...choice,source:{group:'SAME',part:2},target},'decision-123','admin');assert.equal(D.summary(t,d)[1].records,0);t.studyDecisions=[d];assert.equal(D.candidates(t,t.records[0]).length,2);
+ const incoming={...row('SAME',2,'2026-11-18',2),attemptId:d.targetAttempt.id,start:'2026-11-15',end:'2027-01-01'},r=Import.plan(t,[{name:'future.xlsx',rows:[incoming]}],2,'2026-FALL');assert.equal(r.writeRows.length,1);assert.equal(D.project({...t,records:[...t.records,...r.rows]}).records.at(-1).absent,2);assert.throws(()=>D.prepare(t,{...choice,source:{group:'SAME',part:2},target},'decision-456','admin'),/hiệu lực/);
+});
+test('future transfer retains one cumulative attempt and requires matching slot denominator',()=>{
+ const t=base();t.records=[row('OLD',1,'2026-10-01',7,70)];t.dailyFollow={};const p={...choice,kind:'transfer',source:{group:'OLD',part:1},target:{group:'NEW',part:2,planned:true,slots:70},cumulativeConfirmed:true},d=D.prepare(t,p,'decision-123','admin');t.studyDecisions=[d];const incoming={...row('NEW',2,'2026-11-18',15,70),attemptId:d.targetAttempt.id},r=Import.plan(t,[{name:'transfer.xlsx',rows:[incoming]}],2,'2026-FALL');assert.equal(r.writeRows.length,1);assert.equal(r.rows[0].part,'full');assert.equal(D.project({...t,records:[...t.records,...r.rows]}).records.at(-1).absent,15);assert.throws(()=>D.prepare({...t,studyDecisions:[]},{...p,target:{...p.target,slots:40}},'decision-456','admin'),/slot/);
+});

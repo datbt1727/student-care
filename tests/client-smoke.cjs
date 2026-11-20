@@ -18,7 +18,7 @@ const user={username:'admin.test',displayName:'Admin',role:'admin',active:true,m
 const health={mirrorStatus:'Neon',backupAt:'2026-10-23',backupError:'',mirrorError:'',info:{spreadsheetUrl:'#',driveUrl:'#'}};
 let syncWorkspace=null;
 const fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);requests.push({action,p,headers:options.headers});let data;
-switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'sync':data=syncWorkspace?{archive:structuredClone(syncWorkspace),revision:p.revision+1,changed:true,user}:{revision:p.revision,changed:false,user};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
+switch(action){case 'resume':return {json:async()=>({ok:false,code:'SESSION',error:'Log in'})};case 'challenge':data={salt:'a'.repeat(32)};break;case 'login':data={token:'cookie',csrf:'test-csrf',user,workspace:{archive:structuredClone(saved),revision:1,user,health}};break;case 'load':data={archive:structuredClone(saved),revision:1,user,health};break;case 'studyReview':data={readOnly:true,revision:p.revision,termId:p.termId,offset:0,limit:50,totalCases:1,warning:'Chưa gán lượt học.',cases:[{studentId:'S',name:'Review Student',subject:'VOG112',reasons:['source_dates_changed'],groups:[{group:'GVO2602',parts:[1],slots:[20],sourceSchedules:[['2026-09-01','2026-10-27'],['2026-11-09','2026-12-28']]}]}]};break;case 'users':data=[user];break;case 'logs':data=[];break;case 'save':saved=JSON.parse(p.json);data={revision:p.revision+1,receipt:{committed:true,requestId:p.requestId,requestHash:crypto.createHash('sha256').update(JSON.stringify([p.revision,p.json,p.restore===true,p.confirmation||''])).digest('hex'),revision:p.revision+1},warning:'',info:health};break;case 'sync':data=syncWorkspace?{archive:structuredClone(syncWorkspace),revision:p.revision+1,changed:true,user}:{revision:p.revision,changed:false,user};break;case 'health':data=health;break;case 'artifact':data={id:'processed'};break;default:data={message:'OK'};}
 return {json:async()=>({ok:true,data})}};
 const observers=[];
 const ctx={setImmediate,clearImmediate,MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push(()=>this.fn([{target}]))}},document:doc,console,crypto:crypto.webcrypto,TextEncoder,TextDecoder,Blob,URL,AbortSignal,fetch,structuredClone,btoa:s=>Buffer.from(s,'binary').toString('base64'),atob:s=>Buffer.from(s,'base64').toString('binary'),localStorage:{getItem:k=>null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);if(ms>500&&ms!==1000&&ms!==3000)t.unref();return t},clearTimeout,setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t},clearInterval,confirm:()=>true,location:{reload(){}},scrollTo(){},addEventListener(){}};
@@ -144,6 +144,10 @@ const oldSheets=[{name:'Sinh viên',rows:[[...termHeads,...retired],[...termRow,
 const parsedOld=ctx.RosterData.parseTerm(oldSheets);
 for(const key of ['enrollmentDate','studiedDuration','cohortYear','expectedGraduation'])assert(!(key in parsedOld.students[0]));
 const preserved=structuredClone(saved);preserved.terms['2026-FALL'].students.push({...parsedTerm.students[0],enrollmentDate:'2020-01-01',studiedDuration:'2 năm',cohortYear:'2020',expectedGraduation:'2028-01-01'});
+const unknownBefore=JSON.stringify(preserved);
+assert.throws(()=>ctx.RosterData.applyTerm(preserved,'2026-FALL',parsedTerm,'test.xlsx'),/MSSV chưa có/);
+assert.equal(JSON.stringify(preserved),unknownBefore,'unknown term roster never creates or changes master/history');
+ctx.StudentRegistry.upsert(preserved,[{id:'NEW001',name:'Sinh viên mới'}],{source:'explicit master fixture'});
 ctx.RosterData.applyTerm(preserved,'2026-FALL',parsedTerm,'test.xlsx');
 assert.equal(preserved.terms['2026-FALL'].students.find(x=>x.id==='NEW001').studiedDuration,'2 năm');
 assert.equal(preserved.terms['2026-FALL'].students.find(x=>x.id==='NEW001').expectedGraduation,'2028-01-01');
@@ -165,6 +169,9 @@ const templateXML=await templateZip.file('xl/worksheets/sheet1.xml').async('stri
 assert(templateXML.includes('Full name'));for(const label of retired)assert(!templateXML.includes(label));
 const originalReader=vm.runInContext('readXlsx',ctx);ctx.testTermSheets=termSheets(termRow);vm.runInContext('readXlsx=async()=>window.testTermSheets',ctx);
 const uploadFile={name:'term.xlsx',size:100,arrayBuffer:async()=>new ArrayBuffer(0)};q('#registry-term-file').files=[uploadFile];q('#registry-term-import').value='2026-FALL';
+await q('#registry-term-upload').click();assert(q('#import-review').open);assert(q('#review-confirm').disabled);
+assert(q('#review-table').textContent.includes('MSSV chưa tồn tại'));q('#review-cancel').click();
+vm.runInContext("StudentRegistry.upsert(archive,[{id:'NEW001',name:'Sinh viên mới'}],{source:'explicit master fixture'});save();render()",ctx);await ctx.RegistryCloud.persist();
 const savesBeforeReview=requests.filter(r=>r.action==='save').length;
 await q('#registry-term-upload').click();assert(q('#import-review').open);assert(!q('#review-confirm').disabled);
 assert.equal(requests.filter(r=>r.action==='save').length,savesBeforeReview);
@@ -471,6 +478,10 @@ const partHeads=['Semester','GroupName','SubjectCode','RollNumber','NumberOfSlot
 ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','NEW-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];
 q('#attendance-part').value='2';await q('#upload-attendance').click();assert(q('#review-guidance').textContent.includes('Part 2'));q('#attendance-part').value='1';await q('#review-confirm').click();assert(q('#review-guidance').textContent.includes('Part'));assert(!vm.runInContext("state.records.some(r=>r.group==='NEW-G')",ctx));
 q('#attendance-part').value='2';await q('#upload-attendance').click();await q('#review-confirm').click();assert(vm.runInContext("state.records.some(r=>r.group==='NEW-G'&&r.part===2)",ctx));assert.equal(saved.terms['2026-FALL'].records.find(r=>r.group==='NEW-G').part,2);
+// Reimporting the exact same attendance cannot write, upload or add a batch.
+const noopBefore={files:saved.terms['2026-FALL'].importFiles.length,records:saved.terms['2026-FALL'].records.length,requests:requests.length};
+await q('#upload-attendance').click();assert(q('#review-confirm').disabled);assert(q('#review-guidance').textContent.includes('Không có dữ liệu mới'));
+await q('#review-confirm').click();assert.equal(requests.length,noopBefore.requests);assert.equal(saved.terms['2026-FALL'].importFiles.length,noopBefore.files);assert.equal(saved.terms['2026-FALL'].records.length,noopBefore.records);q('#review-close').click();
 ctx.readXlsx=async()=>[{name:'Data',rows:[partHeads,['FALL 2026','P1-G','A','PARTSV',40,2,5,'2026-10-31','2026-12-31','Retake student']]}];q('#attendance-part').value='2';await q('#upload-attendance').click();assert(q('#review-confirm').disabled);assert(q('#review-table').textContent.includes('Part 1'));q('#review-close').click();
 q('#attendance-files').files=[];ctx.Operation.clear();
 vm.runInContext("const legacyRow={id:'PARTSV',name:'Retake student',term:state.termLabel,subject:'OLD',group:'LEGACY-G',date:'2026-09-01',start:'2026-09-01',end:'2026-10-31',absent:8,slots:40};state.records.push(legacyRow);state.importFiles.push({id:'legacy-part-file',name:'old.xlsx',date:'2026-09-01',records:[{...legacyRow}],deleted:false});save();render()",ctx);await ctx.RegistryCloud.persist();vm.runInContext('render()',ctx);
@@ -499,12 +510,93 @@ assert.equal(q('#part-full-groups').closest('.sc-scope-actions'),q('.sc-scope-ac
 assert.equal(doc.querySelectorAll('#term-switch').length,1);assert.equal(doc.querySelectorAll('#part-switch').length,1);
 assert.equal(q('.sc-copyright').textContent,'StudentCare © 2026');
 console.log('PASS compact scope toolbar moves existing functional controls without duplication and adds inline copyright.');
+const qaPolicyBefore=vm.runInContext('JSON.stringify(archive)',ctx);
+vm.runInContext("if(!state.students.length)state.students.push({id:\'QA-POLICY\',name:\'QA fixture\',termStatus:\'HD\',level:1,categories:[]});state.courseCatalog.push({subject:'GPDP101',name:'Excluded activity'});state.records.push({id:state.students[0].id,term:state.termLabel,subject:'GPDP101',group:'Company Visit',date:state.asof,absent:1,slots:3,part:1});StudentViewCache.invalidate()",ctx);
+const policyQA=vm.runInContext('qaFollowTable()',ctx);assert(!JSON.stringify(policyQA).includes('GPDP101'));assert(!JSON.stringify(policyQA).includes('Company Visit'));
+ctx.qaPolicyBefore=qaPolicyBefore;vm.runInContext('archive=JSON.parse(window.qaPolicyBefore);state=archive.terms[archive.active];render()',ctx);
+q('#business-review').open=true;q('#business-review').ontoggle();assert(q('#business-summary').textContent.includes('sinh viên phụ trách'));q('#business-review').open=false;
+console.log('PASS final QA source excludes GPDP101 while keeping stored history; business review opens without saving.');
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
 q('#auth-password').value='Password#1234';q('#auth-totp').value='654321';
 const firstSubmit=q('#login-form').requestSubmit();const secondSubmit=q('#login-form').requestSubmit();await new Promise(r=>setTimeout(r,0));assert.equal(submissions,1);releaseLogin();await Promise.all([firstSubmit,secondSubmit]);
 ctx.fetch=previousFetch;
+// Admin study review displays server evidence without saving, uploading or rewriting archive.
+await ctx.RegistryCloud.persist();const studyBefore=JSON.stringify(saved),studySaves=requests.filter(r=>r.action==='save'||r.action==='artifact').length;
+await q('#study-review-refresh').click();assert(q('#study-review-table').textContent.includes('Review Student'));assert(q('#study-review-table').textContent.includes('Ngày lớp trong nguồn thay đổi'));assert.equal(JSON.stringify(saved),studyBefore);assert.equal(requests.filter(r=>r.action==='save'||r.action==='artifact').length,studySaves);assert(!requests.at(-1).p.apply);
+console.log('PASS admin study review shows source schedule conflicts without saving archive or uploading files.');
+// The staged decision editor requires explicit classification, invalidates changed
+// previews and reuses one request ID after an unconfirmed write response.
+const oldPreviewStudy=ctx.RegistryCloud.previewStudy,oldConfirmStudy=ctx.RegistryCloud.confirmStudy,oldStudyReady=ctx.RegistryCloud.studyReady;ctx.RegistryCloud.studyReady=()=>{};
+Object.defineProperty(N.prototype,'disabled',{get(){return 'disabled' in this.attrs;},set(v){v?this.attrs.disabled='':delete this.attrs.disabled;},configurable:true});
+N.prototype.addEventListener=function(type,fn){(this.events??={})[type]??=[];this.events[type].push(fn);};
+N.prototype.dispatchEvent=function(e){for(const fn of this.events?.[e.type]||[])fn(e);};
+N.prototype.createTHead=function(){const n=new N('thead');this.append(n);return n;};
+N.prototype.createTBody=function(){const n=new N('tbody');this.append(n);return n;};
+N.prototype.insertRow=function(){const n=new N('tr');this.append(n);return n;};
+N.prototype.insertCell=function(){const n=new N('td');this.append(n);return n;};
+ctx.Option=function(text,value){const n=new N('option');n.textContent=text;n.value=value;return n;};
+ctx.Event=function(type){this.type=type;};
+let decisionRequestIds=[],decisionChoices=[];
+ctx.RegistryCloud.previewStudy=async c=>{decisionChoices.push(c);return {decisionId:'decision-test',planToken:'private-plan',sourceCount:2,targetCount:1,attempts:[{number:1,last:'2026-10-01',absent:10,slots:40,percent:25},{number:2,last:'2026-11-18',absent:2,slots:40,percent:5}]};};
+ctx.RegistryCloud.confirmStudy=async(p,id)=>{decisionRequestIds.push(id);if(decisionRequestIds.length===1)throw Error('Chưa xác nhận lưu');return {receipt:{committed:true}};};
+ctx.StudentStudyEditor.open({studentId:'S',name:'Test',subject:'AEG116',groups:[{group:'OLD',parts:[1]},{group:'NEW',parts:[2]}]});
+const decisionDialog=q('.study-decision-dialog'),dq=s=>decisionDialog.querySelector(s);
+assert(decisionDialog.open);assert(dq('[data-save]').disabled);
+dq('[data-source]').value='0';dq('[data-target]').value='3';dq('[data-kind]').value='retake';
+await dq('[data-preview]').click();assert(!dq('[data-save]').disabled);assert(dq('[data-result]').textContent.includes('5,00%'));assert.equal(decisionChoices[0].kind,'retake');
+dq('[data-target]').dispatchEvent(new ctx.Event('change'));assert(dq('[data-save]').disabled,'changed selection invalidates the signed preview');
+await dq('[data-preview]').click();await dq('[data-save]').click();assert(dq('[data-status]').textContent.includes('Chưa xác nhận lưu'));assert(!dq('[data-save]').disabled);
+await dq('[data-save]').click();assert.equal(decisionRequestIds[0],decisionRequestIds[1],'retry uses same idempotency ID');assert(dq('[data-save]').hidden);assert(dq('[data-status]').textContent.includes('Đã lưu và áp dụng lựa chọn'));assert.equal(JSON.stringify(saved),studyBefore);
+dq('[data-close]').click();assert(!q('.study-decision-dialog'));
+ctx.RegistryCloud.previewStudy=oldPreviewStudy;ctx.RegistryCloud.confirmStudy=oldConfirmStudy;ctx.RegistryCloud.studyReady=oldStudyReady;
+console.log('PASS staged decision editor previews independent attempt percentages, invalidates changes, preserves raw archive and retries same receipt ID.');
+const stagedFetch=ctx.fetch,rawBeforeDecision=JSON.stringify(saved.terms['2026-FALL'].records);let serverDecisionArchive,decisionRev,decisionSyncs=0,badDecisionReceipt=true;
+ctx.fetch=async(url,options)=>{const {action,p}=JSON.parse(options.body);
+ if(action==='previewStudyDecision'){decisionRev=p.revision;return {json:async()=>({ok:true,data:{revision:p.revision,decisionId:'receipt-decision',planToken:'test-encrypted-plan'}})};}
+ if(action==='commitStudyDecision'){const hash=crypto.createHash('sha256').update(JSON.stringify(['study-decision',p.planToken,p.confirmation])).digest('hex');serverDecisionArchive=structuredClone(saved);serverDecisionArchive.terms['2026-FALL'].studyDecisions=[{id:'receipt-decision',status:'active',kind:'retake',studentId:'S',subject:'M',source:{group:'OLD',part:1},target:{group:'NEW',part:2},sourceRefs:[],targetRefs:[],sourceAttempt:{id:'receipt-source',number:1},targetAttempt:{id:'receipt-target',number:2},sourceSlots:[40],targetSlots:[40]}];return {json:async()=>({ok:true,data:{revision:decisionRev+1,decisionId:'receipt-decision',receipt:{committed:true,requestId:p.requestId,requestHash:badDecisionReceipt?'wrong':hash,revision:decisionRev+1}}})};}
+ if(action==='sync'){decisionSyncs++;return {json:async()=>({ok:true,data:{changed:true,revision:decisionRev+1,archive:serverDecisionArchive,user}})};}
+ return stagedFetch(url,options);
+};
+const actualPlan=await ctx.RegistryCloud.previewStudy({kind:'retake'});await assert.rejects(()=>ctx.RegistryCloud.confirmStudy(actualPlan,'receipt-request'),/xác nhận lưu hợp lệ/);assert.equal(decisionSyncs,0);
+badDecisionReceipt=false;q('#changed-date').value='2026-11-05';await ctx.RegistryCloud.confirmStudy(actualPlan,'receipt-request');assert.equal(decisionSyncs,1);assert.equal(vm.runInContext('state.studyDecisions[0].id',ctx),'receipt-decision');assert.equal(q('#changed-date').value,'2026-11-05','decision readback preserves manually chosen form date');assert.equal(JSON.stringify(vm.runInContext('state.records',ctx)),rawBeforeDecision);
+ctx.fetch=stagedFetch;
+
+ctx.studyArchiveBefore=vm.runInContext('JSON.stringify(archive)',ctx);
+vm.runInContext(`(()=>{
+const t={termId:'2026-FALL',termLabel:'FALL 2026',asof:'2026-11-19',limit:25,early:20,students:[{id:'ATT1',name:'Attempt Student',categories:['Theo dõi chung'],level:1,termStatus:'HD'}],records:[{id:'ATT1',name:'Attempt Student',term:'FALL 2026',subject:'AEG116',group:'SAME',part:1,date:'2026-10-01',absent:10,slots:40},{id:'ATT1',name:'Attempt Student',term:'FALL 2026',subject:'AEG116',group:'SAME',part:2,date:'2026-11-18',absent:2,slots:40}],dailyFollow:{old:{id:'ATT1',term:'FALL 2026',subject:'AEG116',group:'SAME',part:1,date:'2026-10-01',note:'Previous attempt only'}},followAudit:[],courseCatalog:[{subject:'AEG116',name:'Test subject'}],notes:{},log:[],importFiles:[]};
+t.studyDecisions=[StudentStudyDecisions.prepare(t,{studentId:'ATT1',subject:'AEG116',kind:'retake',source:{group:'SAME',part:1},target:{group:'SAME',part:2}},'browser-attempt-test','admin')];archive.terms['2026-FALL']=t;archive.active='2026-FALL';state=t;render();
+})()`,ctx);
+assert(ctx.PartScope.change('all'));assert.deepEqual(Array.from(vm.runInContext('rowsNow().map(r=>r.raw)',ctx)),[25,5]);
+let attemptSheets=vm.runInContext('qaFollowTable()',ctx);assert(attemptSheets[0].rows[0].some(v=>String(v).includes('Lượt 1')));assert(attemptSheets[0].rows[0].some(v=>String(v).includes('Lượt 2')));
+assert(ctx.PartScope.change('2'));attemptSheets=vm.runInContext('qaFollowTable()',ctx);assert(!JSON.stringify(attemptSheets).includes('Previous attempt only'),'Part2 QA must not inherit Part1 Follow');
+ctx.pickInputs=[{name:'new.xlsx',rows:[{id:'ATT1',subject:'AEG116',group:'SAME'}]}];const pickPromise=ctx.chooseStudyImport(vm.runInContext('state',ctx),ctx.pickInputs,2);
+const picker=q('.study-decision-dialog');assert(picker.open);assert.equal(picker.querySelector('select').value,'');picker.querySelector('[data-unique]').click();picker.querySelector('[data-apply]').click();const picked=await pickPromise;assert(picked[0].rows[0].attemptId);assert(!ctx.pickInputs[0].rows[0].attemptId,'picker must not mutate source input');
+vm.runInContext('archive=JSON.parse(window.studyArchiveBefore);state=archive.terms[archive.active];render()',ctx);ctx.PartScope.change('all');
+console.log('PASS browser Part scopes and QA keep reused-group attempts and Follow separate; import picker requires explicit confirmation.');
+console.log('PASS staged decision transport verifies exact content hash and reads committed metadata without overwriting form dates or attendance.');
+
+
+// Read-only CSRF resync is bounded, preserves archive/drafts and never retries writes.
+const csrfBaseline=JSON.stringify(saved),csrfWriteCount=requests.filter(r=>r.action==='save'||r.action==='artifact').length;
+const csrfFetch=ctx.fetch;let csrfPreviewCalls=0,csrfResumes=0;
+ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);
+ if(body.action==='studyReview'&&csrfPreviewCalls++===0)return {json:async()=>({ok:false,code:'CSRF_MISMATCH',error:'Session mismatch'})};
+ if(body.action==='resume'){csrfResumes++;assert.equal(body.p.includeWorkspace,false);return {json:async()=>({ok:true,data:{user,csrf:'renewed-read-csrf'}})};}
+ if(body.action==='studyReview')assert.equal(options.headers['X-SC-CSRF'],'renewed-read-csrf');
+ return csrfFetch(url,options);
+};
+await q('#study-review-refresh').click();assert.equal(csrfPreviewCalls,2);assert.equal(csrfResumes,1);assert(q('#study-review-table').textContent.includes('Review Student'));assert.equal(JSON.stringify(saved),csrfBaseline);assert.equal(requests.filter(r=>r.action==='save'||r.action==='artifact').length,csrfWriteCount);
+// Repeated rejection stops after one renewal, rather than looping.
+csrfPreviewCalls=0;csrfResumes=0;ctx.fetch=async(url,options)=>{const b=JSON.parse(options.body);if(b.action==='studyReview'){csrfPreviewCalls++;return {json:async()=>({ok:false,code:'CSRF_MISSING',error:'Missing session marker'})};}if(b.action==='resume'){csrfResumes++;return {json:async()=>({ok:true,data:{user,csrf:'another-csrf'}})};}return csrfFetch(url,options)};
+await q('#study-review-refresh').click();assert.equal(csrfPreviewCalls,2);assert.equal(csrfResumes,1);assert(q('#study-review-message').textContent.includes('Missing session marker'));
+// A cookie for a different user never retries the original user's request.
+csrfPreviewCalls=0;ctx.fetch=async(url,options)=>{const b=JSON.parse(options.body);if(b.action==='studyReview'){csrfPreviewCalls++;return {json:async()=>({ok:false,code:'CSRF_MISMATCH',error:'Mismatch'})};}if(b.action==='resume')return {json:async()=>({ok:true,data:{user:{...user,username:'different-user'},csrf:'foreign-csrf'}})};return csrfFetch(url,options)};
+await q('#study-review-refresh').click();assert.equal(csrfPreviewCalls,1);assert(q('#study-review-message').textContent.includes('đã thay đổi'));
+let csrfSaveCalls=0;csrfResumes=0;ctx.fetch=async(url,options)=>{const b=JSON.parse(options.body);if(b.action==='save'){csrfSaveCalls++;return {json:async()=>({ok:false,code:'CSRF_MISMATCH',error:'Save not authorized'})};}if(b.action==='resume')csrfResumes++;return csrfFetch(url,options)};
+const deniedSave=await new Promise((resolve,reject)=>ctx.google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).api('save',{requestId:'csrf-denied-save',json:'{}',revision:1}));assert.equal(deniedSave.ok,false);assert.equal(csrfSaveCalls,1);assert.equal(csrfResumes,0);ctx.fetch=csrfFetch;
+console.log('PASS read-only CSRF renewal preserves archive, rejects changed account, stops repeated failures and never replays a write.');
 // A real 429 displays a waiting state and blocks repeated submits without weakening MFA.
 ctx.fetch=async()=>({json:async()=>({ok:false,code:'429',retryAfter:30,error:'Tạm giới hạn số lần thử.'})});q('#auth-password').value='Password#1234';await q('#login-form').requestSubmit();assert(q('#login-submit').disabled);assert(q('#login-submit').textContent.includes('Thử lại sau'));assert.equal(q('#auth-password').value,'Password#1234');
 console.log('PASS inline authenticated workspace/no duplicate login; import badge ownership/acknowledgment; login cooldown.');
