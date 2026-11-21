@@ -10,3 +10,12 @@ test('ENR multi-class remains unresolved; different level does not reuse absence
  const term={students:[{id:'S'}],records:[row('ENR103','OLD')],courseCatalog:[]};assert.equal(B.classify(row('ENR103','NEW'),term).type,'needs_review');assert.equal(B.classify(row('ENR203','NEW'),term).type,'group_scoped');const tutor=row('ENR003','ENR003 - TUTOR');term.records.push(tutor);const before=JSON.stringify(term);const p=I.plan(term,[{name:'x.xlsx',rows:[tutor,row('ENR203','VALID')]}],1,'2026-FALL');assert.equal(p.rows.length,1);assert.equal(p.rejected,1);assert.equal(JSON.stringify(term),before);
 });
 test('browser uses the tested shared policy',()=>{assert(fs.readFileSync(new URL('../web/source.html',import.meta.url),'utf8').includes(fs.readFileSync(new URL('../lib/business-policy.cjs',import.meta.url),'utf8').trim()));});
+
+test('QA uses only selected term catalog including note-only courses; whitespace/case normalized without mutating source',()=>{
+ const term={students:[{id:'S'}],courseCatalog:[{subject:'AEG116',name:'Allowed'}],records:[row(' aeg116 '),row('OUTSIDE')],dailyFollow:{ok:{...row('aeg116'),note:'Allowed note'},out:{...row('OUTSIDE'),note:'Hidden note'}}};const before=structuredClone(term),r=B.followSources(term,term.records,Object.values(term.dailyFollow));
+ assert.deepEqual(r.records.map(x=>x.subject),['AEG116']);assert.deepEqual(r.follows.map(x=>x.note),['Allowed note']);assert.deepEqual(term,before);
+ const other={...term,courseCatalog:[{subject:'OTHER'}]};assert.equal(B.followSources(other,term.records,Object.values(term.dailyFollow)).records.length,0);
+});
+test('empty term catalog never falls back to attendance or Follow subjects',()=>{
+ const t={students:[{id:'S'}],courseCatalog:[]};const r=B.followSources(t,[row()],[{...row(),note:'keep raw'}]);assert.equal(r.records.length,0);assert.equal(r.follows.length,0);assert.equal(r.catalog.length,0);
+});

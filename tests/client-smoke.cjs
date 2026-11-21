@@ -30,6 +30,29 @@ assert(doc.documentElement.classList.contains('sc-auth-open'));assert(q('.worksp
 q('#auth-username').value='admin.test';q('#auth-password').value='Password#1234';q('#auth-totp').value='123456';q('#auth-remember').checked=true;
 await q('#login-form').requestSubmit();
 assert(q('#auth-gate').hidden,q('#auth-message').textContent);
+// Birthday email acknowledgment: real UI handlers, bulk selection, failed save and year history.
+const birthdayCloud=ctx.RegistryCloud;
+ctx.birthdayTestArchive=vm.runInContext('archive',ctx);
+ctx.birthdayTestSave=vm.runInContext('save',ctx);
+ctx.birthdayTestRender=vm.runInContext('render',ctx);
+const bd=ctx.StudentDates.today(),monthDay=bd.slice(5);
+let birthdayConfirmed={},birthdayFail=true,birthdayWrites=0;
+ctx.RegistryCloud={...birthdayCloud,get birthdayMail(){return birthdayConfirmed},persist:async()=>{birthdayWrites++;if(birthdayFail)throw Error('Network test failure');birthdayConfirmed=structuredClone(vm.runInContext('archive.studentServices.birthdayMail',ctx));}};
+vm.runInContext("archive={version:2,active:'T',terms:{T:{students:[{id:'BD1',name:'One'},{id:'BD2',name:'Two'},{id:'BDG',name:'Graduate',status:'G'}],records:[]}},registry:{students:{BD1:{id:'BD1',name:'One',birthday:'2000-"+monthDay+"'},BD2:{id:'BD2',name:'Two',birthday:'2001-"+monthDay+"'},BDG:{id:'BDG',name:'Graduate',birthday:'2000-"+monthDay+"'}}},studentServices:{certificates:[],insurance:[],audit:[]}};save=()=>{};render=()=>{};",ctx);
+q('#birthday-date').value=bd;q('#birthday-filter').value='pending';q('#birthday-date').onchange();
+assert.equal(doc.querySelectorAll('[data-birthday-select]').length,2);assert(!q('#birthday-list').textContent.includes('Graduate'));
+q('#birthday-all').checked=true;q('#birthday-all').onchange({target:q('#birthday-all')});
+assert(q('#birthday-bulk').textContent.includes('(2)'));assert(!q('#birthday-bulk').disabled);
+await q('#birthday-bulk').click();
+assert.equal(birthdayWrites,1);assert.equal(doc.querySelectorAll('[data-birthday-mark]').length,2,'failed confirmation must not hide birthdays');assert(q('#birthday-result').textContent.includes('Chưa xác nhận lưu'));
+birthdayFail=false;await q('#birthday-bulk').click();
+assert.equal(Object.keys(birthdayConfirmed).length,2);assert.equal(doc.querySelectorAll('[data-birthday-mark]').length,0);assert(q('#birthday-banner').hidden);
+q('#birthday-filter').value='sent';q('#birthday-filter').onchange();assert(q('#birthday-list').textContent.includes('One'));assert(q('#birthday-list').textContent.includes('Two'));
+q('#birthday-date').value=(Number(bd.slice(0,4))+1)+bd.slice(4);q('#birthday-filter').value='pending';q('#birthday-date').onchange();assert.equal(doc.querySelectorAll('[data-birthday-mark]').length,2,'next year reminders return');
+ctx.StudentPermissions.setUser({role:'staff',permissions:{}});q('#birthday-date').onchange();assert.equal(doc.querySelectorAll('[data-birthday-mark]').length,0);assert(q('#birthday-bulk').disabled);
+ctx.StudentPermissions.setUser(user);ctx.RegistryCloud=birthdayCloud;
+vm.runInContext('archive=birthdayTestArchive;save=birthdayTestSave;render=birthdayTestRender;render()',ctx);q('#birthday-date').value=bd;
+console.log('PASS birthday per-row/bulk UI, server-confirmed hiding, failed-save retention, sent history, year reset and read-only restrictions.');
 const vnToday=ctx.StudentDates.today();
 assert.equal(ctx.StudentDates.today(new Date('2026-10-23T16:59:59Z')),'2026-10-23');
 assert.equal(ctx.StudentDates.today(new Date('2026-10-23T17:00:00Z')),'2026-10-24');
@@ -516,6 +539,19 @@ const policyQA=vm.runInContext('qaFollowTable()',ctx);assert(!JSON.stringify(pol
 ctx.qaPolicyBefore=qaPolicyBefore;vm.runInContext('archive=JSON.parse(window.qaPolicyBefore);state=archive.terms[archive.active];render()',ctx);
 q('#business-review').open=true;q('#business-review').ontoggle();assert(q('#business-summary').textContent.includes('sinh viên phụ trách'));q('#business-review').open=false;
 console.log('PASS final QA source excludes GPDP101 while keeping stored history; business review opens without saving.');
+
+// QA catalog allowlist applies to preview and the serialized XLSX, including note-only subjects.
+const catalogFixtureBefore=vm.runInContext('JSON.stringify(archive)',ctx);
+vm.runInContext("state.students=[{id:'CAT1',name:'Catalog fixture',categories:[]}];state.courseCatalog=[{subject:'ALLOW101',name:'Allowed course'}];state.records=[{id:'CAT1',subject:'ALLOW101',group:'G1',part:1,date:state.asof,absent:2,slots:40},{id:'CAT1',subject:'BLOCK999',group:'HIDDEN_GROUP',part:1,date:state.asof,absent:3,slots:40}];state.dailyFollow={allowed:{id:'CAT1',subject:'ALLOW101',group:'G1',part:1,date:state.asof,note:'ALLOWED_FOLLOW'},blocked:{id:'CAT1',subject:'BLOCK999',group:'HIDDEN_GROUP',part:1,date:state.asof,note:'HIDDEN_FOLLOW'},noteOnly:{id:'CAT1',subject:'NOTE999',group:'HIDDEN_NOTE_GROUP',part:1,date:state.asof,note:'HIDDEN_NOTE_ONLY'}};StudentViewCache.invalidate()",ctx);
+const catalogRaw=vm.runInContext('JSON.stringify(state)',ctx),catalogQA=vm.runInContext('qaFollowTable()',ctx);
+assert(JSON.stringify(catalogQA).includes('ALLOW101'));assert(JSON.stringify(catalogQA).includes('ALLOWED_FOLLOW'));
+const catalogZip=await ctx.JSZip.loadAsync(await originalMake(catalogQA)),catalogXml=await catalogZip.file('xl/worksheets/sheet1.xml').async('string');
+for(const x of ['BLOCK999','HIDDEN_GROUP','HIDDEN_FOLLOW','NOTE999','HIDDEN_NOTE_ONLY']){assert(!JSON.stringify(catalogQA).includes(x));assert(!catalogXml.includes(x));}
+assert.equal(vm.runInContext('JSON.stringify(state)',ctx),catalogRaw);
+vm.runInContext('state.courseCatalog=[];StudentViewCache.invalidate()',ctx);assert.equal(vm.runInContext('qaFollowTable()[0].courseColumns.length',ctx),0);
+ctx.catalogFixtureBefore=catalogFixtureBefore;vm.runInContext('archive=JSON.parse(window.catalogFixtureBefore);state=archive.terms[archive.active];render()',ctx);
+console.log('PASS QA preview/XLSX restrict subjects and course Follow to selected-term catalog; empty catalog has no fallback and raw history remains unchanged.');
+
 // A double submit sends only one login request while authentication is pending.
 const previousFetch=ctx.fetch;let releaseLogin;let submissions=0;
 ctx.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='login'){submissions++;await new Promise(resolve=>{releaseLogin=resolve})}return previousFetch(url,options)};
