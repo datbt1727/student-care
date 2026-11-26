@@ -37,3 +37,5 @@ for(const entry of await fs.readdir(new URL('../dist/assets/',import.meta.url),{
  if(entry.isFile()&&/^app-\d+\.js$/.test(entry.name))await fs.unlink(new URL('../dist/assets/'+entry.name,import.meta.url));
 }
 console.log('Built',scripts.length,'local scripts. No external script/CDN.');
+
+await fs.copyFile(new URL('../release.json',import.meta.url),new URL('../dist/release.json',import.meta.url));
