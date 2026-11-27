@@ -1,7 +1,9 @@
 {
-  "release": "SC-2026.11.26.1",
+  "release": "SC-2026.11.27.1",
   "features": [
     "qa-term-catalog-only",
-    "birthday-manual-email-acknowledgment"
+    "birthday-manual-email-acknowledgment",
+    "attendance-cutoff-validation",
+    "empty-attempt-no-fabricated-percent"
   ]
 }
