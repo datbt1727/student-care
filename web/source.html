@@ -92,8 +92,36 @@ body.console-ui .sc-save-error:empty{display:none}
 'use strict';
 const norm=v=>String(v||'').trim().toUpperCase();
 const key=r=>JSON.stringify([r.id,r.subject,r.group||'']);
+
+function catalogCodes(catalog=[]){
+ if(!Array.isArray(catalog)||catalog.length>3000)throw Error('Danh mục môn không hợp lệ.');
+ const map=new Map(),subjects=new Set();
+ for(const c of catalog){
+  if(!c||typeof c.subject!=='string'||!norm(c.subject)||c.subject.length>100||(c.name!==undefined&&(typeof c.name!=='string'||c.name.length>500)))throw Error('Mã và tên môn không hợp lệ.');
+  if(subjects.has(norm(c.subject)))throw Error('Mã môn bị trùng: '+c.subject);subjects.add(norm(c.subject));
+  if(c.aliases!==undefined&&(!Array.isArray(c.aliases)||c.aliases.length>50||c.aliases.some(x=>typeof x!=='string'||!norm(x)||x.length>100)))throw Error('Mã môn liên kết không hợp lệ.');
+  for(const code of [c.subject,...(c.aliases||[])]){const k=norm(code);if(map.has(k)&&map.get(k)!==c.subject)throw Error('Mã môn bị trùng hoặc liên kết với nhiều môn: '+k);map.set(k,c.subject);}
+ }
+ return map;
+}
+function editCatalog(term,oldCode,newCode,newName,actor){
+ const code=norm(newCode),name=String(newName||'').trim(),catalog=term.courseCatalog||[],index=catalog.findIndex(c=>c.subject===oldCode);
+ if(index<0)throw Error('Môn học không còn trong danh mục.');
+ if(!/^[A-Z0-9][A-Z0-9._-]{0,99}$/.test(code)||!name||name.length>500||/[<>]/.test(name))throw Error('Kiểm tra mã môn và tên môn.');
+ const previous=catalog[index],aliases=[...new Set([...(previous.aliases||[]),...(norm(previous.subject)!==code?[previous.subject]:[])])].filter(x=>norm(x)!==code);
+ if(norm(previous.subject)!==code){
+  const owned=new Set([previous.subject,...(previous.aliases||[])].map(norm));
+  const refs=[...(term.records||[]),...Object.values(term.dailyFollow||{}),...(term.importFiles||[]).flatMap(f=>f.records||[]),...(term.studyDecisions||[])];
+  if(!owned.has(code)&&refs.some(r=>norm(r.subject)===code))throw Error('Mã mới đã có dữ liệu riêng. Không tự gộp hai môn; cần đối chiếu.');
+ }
+ const next={...previous,subject:code,name,...(aliases.length?{aliases}:{})};if(!aliases.length)delete next.aliases;
+ const rows=catalog.map((c,i)=>i===index?next:c);catalogCodes(rows);
+ if(JSON.stringify(next)===JSON.stringify(previous))return term;
+ return {...term,courseCatalog:rows,catalogAudit:[...(term.catalogAudit||[]),{type:'edit',before:previous,after:next,actor,at:new Date().toISOString(),term:term.termId}]};
+}
+
 function followSources(term,records,follows){
- const ids=new Set((term.students||[]).map(s=>s.id)),catalog=(term.courseCatalog||[]).filter(c=>norm(c.subject)&&norm(c.subject)!=='GPDP101'),codes=new Map(catalog.map(c=>[norm(c.subject),c.subject]));
+ const ids=new Set((term.students||[]).map(s=>s.id)),catalog=(term.courseCatalog||[]).filter(c=>norm(c.subject)&&norm(c.subject)!=='GPDP101'),codes=catalogCodes(catalog);
  const select=rows=>rows.filter(r=>ids.has(r.id)&&codes.has(norm(r.subject))).map(r=>r.subject===codes.get(norm(r.subject))?r:{...r,subject:codes.get(norm(r.subject))});
  return {records:select(records),follows:select(follows),catalog};
 }
@@ -110,7 +138,7 @@ function classify(row,term){
  if(/^ENR\d+$/.test(norm(row.subject))&&same.length)return {type:'needs_review',identity:key(row),inheritAbsence:false};
  return {type:'group_scoped',identity:key(row),inheritAbsence:false};
 }
-const api={followSources,review,classify};if(typeof module==='object'&&module.exports)module.exports=api;else root.StudentBusinessPolicy=api;
+const api={followSources,review,classify,catalogCodes,editCatalog};if(typeof module==='object'&&module.exports)module.exports=api;else root.StudentBusinessPolicy=api;
 })(typeof window==='object'?window:globalThis);
 
 </script>
@@ -1786,9 +1814,9 @@ body.console-ui #detail-body.profile-wide-content{padding:18px 22px 24px;backgro
  function qaAcademicFields(s){let status=s.termStatus??s.academicStatus??'',level=s.level??s.academicTerm??'';if(!s.termStatus&&statusCodes.has(String(level).trim().toUpperCase())&&/^[+-]?\d+$/.test(String(status).trim()))[status,level]=[level,status];if(level!==''&&!/^[+-]?\d+$/.test(String(level).trim()))throw Error(s.id+': Level phải là số kỳ học. Vui lòng cập nhật từ file hàng kỳ.');return {status,level:level===''?'':Number(level)}}
  window.qaAcademicFields=qaAcademicFields;
  const col=n=>{let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s};
- window.qaFollowTable=function(){const fields=['STT','ID','Full name','Trạng thái\n'+state.termLabel,'Level\n'+state.termLabel,'Lớp','Ngày','Tháng','Năm','Ngày sinh','Giới tính','Dân tộc','Email','Note đặc biệt'],rows=[fields,[...fields.map(()=>null)],[...fields.map(()=>null)]],merges=[],courseColumns=[],percentColumns=[];fields.forEach((_,c)=>merges.push(col(c)+'1:'+col(c)+'3'));const students=state.students,ids=new Set(students.map(s=>s.id)),sources=StudentBusinessPolicy.followSources(state,partRecords(),Object.values(partFollows())),records=sources.records.filter(r=>r.date<=state.asof),follows=sources.follows.filter(f=>f.date<=state.asof);
+ window.qaFollowTable=function(applySelection=true){const fields=['STT','ID','Full name','Trạng thái\n'+state.termLabel,'Level\n'+state.termLabel,'Lớp','Ngày','Tháng','Năm','Ngày sinh','Giới tính','Dân tộc','Email','Note đặc biệt'],rows=[fields,[...fields.map(()=>null)],[...fields.map(()=>null)]],merges=[],courseColumns=[],percentColumns=[];fields.forEach((_,c)=>merges.push(col(c)+'1:'+col(c)+'3'));const students=state.students,ids=new Set(students.map(s=>s.id)),sources=StudentBusinessPolicy.followSources(state,partRecords(),Object.values(partFollows())),records=sources.records.filter(r=>r.date<=state.asof),follows=sources.follows.filter(f=>f.date<=state.asof);
  for(let i=0;i<students.length;i++){const s=students[i],birthday=E.iso(s.birthday),academic=qaAcademicFields(s);rows.push([i+1,s.id,s.name,academic.status,academic.level,s.cohort??'',birthday?Number(birthday.slice(8)):'',birthday?Number(birthday.slice(5,7)):'',birthday?Number(birthday.slice(0,4)):'',dateCell(birthday),s.gender??'',s.ethnicity??'',s.email??'',s.specialNote??s.extra?.['Note đặc biệt']??''])}
- const catalog=new Map(sources.catalog.map(c=>[c.subject,c.name]));
+ const selectedCourses=applySelection?(window.QACourseSelection?.values()||[]):[];const catalog=new Map(sources.catalog.filter(c=>!selectedCourses.length||selectedCourses.includes(c.subject)).map(c=>[c.subject,c.name]));
  const indexed=StudentReportIndex.build(records,follows);
  for(const [subject,name]of catalog){const groups=indexed.get(subject)||new Map();for(const [group,g]of [...groups].sort(([a],[b])=>a.localeCompare(b))){const dates=[...g.dates].sort(),start=rows[0].length,source=g.records[0]||g.follows[0];courseColumns.push(start);rows[0].push((window.PartScope?.recordLabel(source)||'Chưa phân Part')+' · '+subject+' · '+(group||'Chưa có nhóm'));rows[1].push(dates.length?'Tên môn học':null);rows[2].push(null);for(let i=0;i<students.length;i++)rows[i+3].push(g.ids.has(students[i].id)?name:null);if(!dates.length){merges.push(col(start)+'1:'+col(start)+'3');continue}merges.push(col(start)+'1:'+col(start+2*dates.length)+'1',col(start)+'2:'+col(start)+'3');for(const date of dates){const c=rows[0].length;rows[0].push(null,null);rows[1].push('Ngày '+day(date),null);rows[2].push('% vắng','Follow');percentColumns.push(c);merges.push(col(c)+'2:'+col(c+1)+'2');for(let i=0;i<students.length;i++){const key=JSON.stringify([students[i].id,date]),record=g.cells.get(key),notes=g.notes.get(key)||[];rows[i+3].push(record?{type:'points',value:record.absent/record.slots*100}:null,notes.join('\n')||null)}}}}
 
@@ -2886,7 +2914,7 @@ sections.forEach((x,i)=>x.b.onclick=()=>show(i));show(0);if(oldLogPanel)oldLogPa
    if(running)return;running=true;preview.disabled=true;button.disabled=true;
    try{
     show('Đang kiểm tra dữ liệu để xem trước…');await RegistryCloud.prepareReport();
-    const sheets=id==='export'?excelTables():qaFollowTable();
+    const sheets=id==='export'?excelTables():qaFollowTable(false);
     const overlay=document.createElement('div');overlay.className='sc-report-preview';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','Xem trước báo cáo');
     overlay.innerHTML='<section><div class="sc-preview-heading"><h2>Xem trước báo cáo</h2><button type="button">Đóng</button></div><p></p><div class="sc-preview-toolbar"><label>Trang báo cáo <select></select></label><span class="sc-preview-sheet-name"></span></div><div class="sc-preview-table"></div><div class="sc-preview-pages"><button type="button">Trang trước</button><span></span><button type="button">Trang sau</button></div></section>';
     const close=()=>{overlay.remove();document.removeEventListener('keydown',escape);preview.focus?.()},escape=e=>{if(e.key==='Escape')close()};
@@ -2926,7 +2954,7 @@ function draw(){
     button.textContent='Đang kiểm tra dữ liệu…';show('Đang kiểm tra bản lưu mới nhất…');Operation.start('Xuất báo cáo Excel');
     await RegistryCloud.prepareReport();
     button.textContent='Đang tạo Excel…';show('Đang tạo file Excel theo môn và nhóm lớp…');Operation.step(null,'Đang tạo file Excel…');
-    const sheets=id==='export'?excelTables():qaFollowTable(),bytes=await makeXlsx(sheets);
+    const sheets=id==='export'?excelTables():qaFollowTable(false),bytes=await makeXlsx(sheets);
     show('File đã sẵn sàng. Chọn cách lưu trong hộp thoại.');
     const name=id==='export'?'FGW-QA-'+state.termId+'-'+state.asof+'.xlsx':'Tong-hop-'+state.termId+'.xlsx';
     const saved=await download(name,bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -3219,3 +3247,86 @@ body.console-ui .sc-global-credit .sc-copyright{font-weight:600;color:#47617a}
  panel.ontoggle=()=>{if(panel.open)draw()};const renderBefore=render;render=function(...args){const result=renderBefore.apply(this,args);if(panel.open)draw();return result;};
 })();
 </script>
+
+<script>
+(function(){
+ const q=s=>document.querySelector(s);
+ // View-only choice, never stored in the archive or reused across terms.
+ let termId='',selected=new Set(),busy=false,editJob=null;
+ const picker=document.createElement('details');picker.id='qa-course-picker';
+ picker.innerHTML='<summary>Chọn môn xuất QA <span id="qa-course-count">Tất cả môn</span></summary><div class="qa-course-content"><input type="search" id="qa-course-search" placeholder="Tìm mã hoặc tên môn" aria-label="Tìm môn xuất QA"><p>Không chọn môn nào: xuất tất cả môn trong danh mục kỳ, theo Part và ngày chốt đang chọn.</p><div id="qa-course-options"></div><button type="button" class="secondary" id="qa-course-clear">Bỏ chọn — xuất tất cả</button></div>';
+ q('#export').parentElement.append(picker);
+ function choices(){if(termId!==state.termId){selected.clear();termId=state.termId;}const allowed=new Set((state.courseCatalog||[]).filter(c=>c.subject!=='GPDP101').map(c=>c.subject));for(const code of selected)if(!allowed.has(code))selected.delete(code);return [...selected];}
+ window.QACourseSelection={values:choices};
+ function drawChoices(){
+  choices();const search=q('#qa-course-search').value.trim().toLowerCase();
+  q('#qa-course-options').innerHTML=(state.courseCatalog||[]).filter(c=>c.subject!=='GPDP101'&&(c.subject+' '+c.name).toLowerCase().includes(search)).map(c=>'<label><input type="checkbox" data-qa-course="'+esc(c.subject)+'" '+(selected.has(c.subject)?'checked':'')+'><span><b>'+esc(c.subject)+'</b> · '+esc(c.name)+'</span></label>').join('')||'<p>Không có môn phù hợp.</p>';
+  q('#qa-course-count').textContent=selected.size?selected.size+' môn':'Tất cả môn';
+  q('#qa-course-options').querySelectorAll('[data-qa-course]').forEach(n=>n.onchange=()=>{n.checked?selected.add(n.dataset.qaCourse):selected.delete(n.dataset.qaCourse);drawChoices()});
+ }
+ q('#qa-course-search').oninput=drawChoices;q('#qa-course-clear').onclick=()=>{selected.clear();drawChoices()};
+ const dialog=document.createElement('dialog');dialog.id='catalog-edit-dialog';
+ dialog.innerHTML='<form id="catalog-edit-form"><h2>Chỉnh sửa môn học</h2><label>Mã môn<input id="catalog-edit-code" required maxlength="100" autocomplete="off"></label><label>Tên môn<input id="catalog-edit-name" required maxlength="500" autocomplete="off"></label><p>Mã cũ được giữ làm liên kết khi xuất QA; điểm danh, lượt học và Follow nguồn không bị sửa. Không dùng chức năng này để gộp hai môn khác nhau.</p><p id="catalog-edit-error" role="alert"></p><div class="catalog-actions"><button type="button" id="catalog-edit-cancel" class="secondary">Hủy</button><button type="submit" id="catalog-edit-save" class="primary">Lưu thay đổi</button></div></form>';document.body.append(dialog);
+ q('#catalog-edit-cancel').onclick=()=>{if(!busy)dialog.close()};
+ function bind(){
+  q('#enrollment-list')?.querySelectorAll('[data-remove-enrollment]').forEach(remove=>{
+   if(remove.parentElement.querySelector('[data-edit-catalog]'))return;
+   const b=document.createElement('button');b.type='button';b.className='secondary';b.dataset.editCatalog=remove.dataset.removeEnrollment;b.textContent='Chỉnh sửa';
+   b.disabled=!StudentPermissions.has('importData');
+   b.onclick=()=>{
+    const course=state.courseCatalog[Number(b.dataset.editCatalog)];if(!course)return;
+    editJob={term:state.termId,subject:course.subject,before:JSON.stringify(course),applied:false};q('#catalog-edit-code').value=course.subject;q('#catalog-edit-name').value=course.name;q('#catalog-edit-error').textContent='';dialog.showModal();
+   };remove.before(b);remove.classList.add('catalog-delete');
+  });
+ }
+ q('#catalog-edit-form').onsubmit=async e=>{
+  e.preventDefault();if(busy||!editJob)return;busy=true;q('#catalog-edit-save').disabled=true;q('#catalog-edit-cancel').disabled=true;
+  try{
+   if(!StudentPermissions.has('importData'))throw Error('Chưa có quyền sửa danh mục môn.');
+   if(state.termId!==editJob.term)throw Error('Học kỳ đã đổi. Mở lại môn cần sửa.');
+   const code=q('#catalog-edit-code').value.trim().toUpperCase();
+   if(code!==editJob.subject&&!StudentPermissions.has('deleteData'))throw Error('Đổi mã môn cần quyền nhập và xóa dữ liệu, hoặc quản trị viên.');
+   if(!editJob.applied){
+    const current=(state.courseCatalog||[]).find(c=>c.subject===editJob.subject);if(JSON.stringify(current)!==editJob.before)throw Error('Danh mục đã thay đổi. Đóng và mở lại để đối chiếu.');
+    const next=StudentBusinessPolicy.editCatalog(state,editJob.subject,code,q('#catalog-edit-name').value,RegistryCloud.currentUser.username);
+    state.courseCatalog=next.courseCatalog;state.catalogAudit=next.catalogAudit;save();editJob.applied=true;
+   }
+   q('#catalog-edit-error').textContent='Đang xác nhận lưu trên máy chủ…';await RegistryCloud.persist();dialog.close();render();SaveFeedback.show('success','Đã lưu danh mục môn','Dữ liệu điểm danh và Follow nguồn được giữ nguyên.');
+  }catch(error){q('#catalog-edit-error').textContent='Chưa xác nhận lưu: '+error.message;}
+  finally{busy=false;q('#catalog-edit-save').disabled=false;q('#catalog-edit-cancel').disabled=false;}
+ };
+ const prev=render;render=function(...args){const result=prev.apply(this,args);drawChoices();bind();return result};
+ if(window.MutationObserver)new MutationObserver(bind).observe(q('#enrollment-list'),{childList:true,subtree:true});
+ drawChoices();bind();
+})();
+</script>
+<style>
+#qa-course-picker{position:relative;margin:8px 0 4px;flex-basis:100%;font-size:13px}
+#qa-course-picker summary{cursor:pointer;display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #d6e2ec;border-radius:12px;width:fit-content;color:#36516c;font-weight:650}
+#qa-course-count{font-size:12px;color:#7f526d;background:#f7eaf1;border-radius:8px;padding:3px 8px}
+.qa-course-content{padding:12px;background:#faf9f6;border:1px solid #d6e2ec;border-radius:14px;margin-top:8px;max-width:720px}
+#qa-course-options{max-height:230px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:4px}
+#qa-course-options label{display:flex;align-items:flex-start;gap:8px;padding:8px;font-size:13px!important;margin:0!important}
+#qa-course-options input[type=checkbox],#birthdays input[type=checkbox]{width:18px!important;height:18px!important;min-height:18px!important;flex:0 0 18px;padding:0!important;margin:0!important;box-shadow:none!important;accent-color:#597f9e}
+#catalog-edit-dialog{width:min(520px,calc(100vw - 28px));max-height:90dvh;overflow:auto;padding:24px;border:1px solid white;border-radius:22px;background:#faf8f5;color:#354c65}
+#catalog-edit-form label{display:grid;gap:6px;margin:14px 0}
+#catalog-edit-form p{font-size:13px;line-height:1.6}
+.catalog-actions{display:flex;justify-content:flex-end;gap:8px}
+#enrollment-list td:last-child{white-space:nowrap;width:190px}
+#enrollment-list td button{font-size:13px!important;min-height:34px!important;padding:7px 12px!important;margin:0 6px 0 0!important;border-radius:10px!important}
+#enrollment-list .catalog-delete{color:#9e4664!important}
+#birthdays .panel{padding:18px 22px!important}
+#birthdays .filters{display:flex!important;align-items:center;flex-wrap:wrap;gap:12px!important;margin:0 0 12px!important}
+#birthdays .filters label{display:flex!important;align-items:center;gap:9px!important;margin:0!important;width:auto!important}
+#birthdays .filters input[type=date],#birthdays .filters select{width:200px!important;min-height:40px!important;font-size:14px!important}
+#birthdays .filters:nth-child(2){padding:10px 0;border-bottom:1px solid #dde5ed}
+#birthdays button{min-height:36px!important;border:1px solid #e0e6ed!important;border-radius:11px!important;padding:8px 14px!important;font-size:13px!important;background:#faf9f6;color:#36516c;box-shadow:3px 4px 10px #dfe2e655,-3px -3px 8px white}
+#birthday-bulk{margin-left:auto!important;background:linear-gradient(115deg,#e4f0f5,#f9edf4)!important}
+#birthday-list td label{display:flex!important;align-items:center!important;gap:10px;margin:0!important}
+#birthday-list th,#birthday-list td{padding:12px 14px!important;font-size:14px!important}
+#birthday-list td:nth-child(3){overflow-wrap:anywhere}
+body.console-ui .sc-global-credit{font-size:14px!important;line-height:1.5!important;gap:7px 14px!important;padding:20px 16px 18px!important;background:transparent!important;border:0!important;box-shadow:none!important}
+body.console-ui .sc-global-credit .sc-copyright{font-size:14px!important;font-weight:650!important;color:#405d78!important}
+body.console-ui .sc-global-credit span{font-size:14px!important;color:#6f5367}
+@media(max-width:600px){#qa-course-options{grid-template-columns:1fr}#birthdays .panel{padding:14px!important}#birthdays .filters input[type=date],#birthdays .filters select{width:100%!important}#birthday-bulk{margin-left:0!important}body.console-ui .sc-global-credit{font-size:13px!important;gap:4px 10px!important}}
+</style>
