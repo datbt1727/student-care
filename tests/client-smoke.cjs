@@ -548,6 +548,16 @@ assert(JSON.stringify(catalogQA).includes('ALLOW101'));assert(JSON.stringify(cat
 const catalogZip=await ctx.JSZip.loadAsync(await originalMake(catalogQA)),catalogXml=await catalogZip.file('xl/worksheets/sheet1.xml').async('string');
 for(const x of ['BLOCK999','HIDDEN_GROUP','HIDDEN_FOLLOW','NOTE999','HIDDEN_NOTE_ONLY']){assert(!JSON.stringify(catalogQA).includes(x));assert(!catalogXml.includes(x));}
 assert.equal(vm.runInContext('JSON.stringify(state)',ctx),catalogRaw);
+
+ // Multi-course QA applies identically to preview tables and serialized Excel.
+ vm.runInContext("state.courseCatalog.push({subject:'OTHER1',name:'Other'});state.records.push({...state.records[0],subject:'OTHER1',group:'OTHER_GROUP'});StudentViewCache.invalidate()",ctx);
+ const originalChoices=ctx.QACourseSelection.values;
+ ctx.QACourseSelection.values=()=>['ALLOW101'];
+ const pickedQA=vm.runInContext('qaFollowTable()',ctx);
+ assert(JSON.stringify(pickedQA).includes('ALLOW101'));assert(!JSON.stringify(pickedQA).includes('OTHER_GROUP'));assert(JSON.stringify(vm.runInContext('qaFollowTable(false)',ctx)).includes('OTHER_GROUP'));
+ const pickedZip=await ctx.JSZip.loadAsync(await originalMake(pickedQA)),pickedXml=await pickedZip.file('xl/worksheets/sheet1.xml').async('string');assert(!pickedXml.includes('OTHER_GROUP'));
+ ctx.QACourseSelection.values=()=>[];assert(JSON.stringify(vm.runInContext('qaFollowTable()',ctx)).includes('OTHER_GROUP'));ctx.QACourseSelection.values=originalChoices;
+
 vm.runInContext('state.courseCatalog=[];StudentViewCache.invalidate()',ctx);assert.equal(vm.runInContext('qaFollowTable()[0].courseColumns.length',ctx),0);
 ctx.catalogFixtureBefore=catalogFixtureBefore;vm.runInContext('archive=JSON.parse(window.catalogFixtureBefore);state=archive.terms[archive.active];render()',ctx);
 console.log('PASS QA preview/XLSX restrict subjects and course Follow to selected-term catalog; empty catalog has no fallback and raw history remains unchanged.');

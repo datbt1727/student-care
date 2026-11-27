@@ -1,9 +1,12 @@
 {
-  "release": "SC-2026.11.27.1",
+  "release": "SC-2026.11.27.2",
   "features": [
     "qa-term-catalog-only",
     "birthday-manual-email-acknowledgment",
     "attendance-cutoff-validation",
-    "empty-attempt-no-fabricated-percent"
+    "empty-attempt-no-fabricated-percent",
+    "catalog-edit-with-qa-aliases",
+    "qa-course-multiselect",
+    "compact-birthday-toolbar-footer"
   ]
 }
