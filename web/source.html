@@ -189,7 +189,7 @@ function validateNew(before,after){
 // Read-only consequence preview. Cumulative snapshots are selected, never summed.
 function summary(t,d){
  const projected=project({...t,studyDecisions:[...(t.studyDecisions||[]),d]}),ids=new Set([d.sourceAttempt.id,d.targetAttempt.id]);
- return [...ids].map(id=>{const rows=projected.records.filter(r=>r.attemptId===id).sort((a,b)=>a.date.localeCompare(b.date)),latest=rows.at(-1),days=new Map();for(const r of rows){const old=days.get(r.date);if(old&&(old.absent!==r.absent||old.slots!==r.slots))throw Error('Cùng lượt/ngày có số liệu khác nhau; cần đối chiếu nguồn, chưa lưu quyết định.');days.set(r.date,r);}if(!latest)return {id,number:d.targetAttempt.number,records:0,first:'',last:'',slots:d.targetSlots[0],absent:0,percent:0,groups:[d.target.group]};return {id,number:latest.attemptNumber,records:rows.length,first:rows[0].date,last:latest.date,slots:latest.slots,absent:latest.absent,percent:latest.absent/latest.slots*100,groups:[...new Set(rows.map(r=>r.group))]};});
+ return [...ids].map(id=>{const rows=projected.records.filter(r=>r.attemptId===id).sort((a,b)=>a.date.localeCompare(b.date)),latest=rows.at(-1),days=new Map();for(const r of rows){const old=days.get(r.date);if(old&&(old.absent!==r.absent||old.slots!==r.slots))throw Error('Cùng lượt/ngày có số liệu khác nhau; cần đối chiếu nguồn, chưa lưu quyết định.');days.set(r.date,r);}if(!latest)return {id,number:d.targetAttempt.number,records:0,first:'',last:'',slots:d.targetSlots[0],absent:null,percent:null,hasData:false,groups:[d.target.group]};return {id,number:latest.attemptNumber,records:rows.length,first:rows[0].date,last:latest.date,slots:latest.slots,absent:latest.absent,percent:latest.absent/latest.slots*100,groups:[...new Set(rows.map(r=>r.group))]};});
 }
 const api={ref,prepare,index,project,candidates,key,summary,followStorageKey,validateNew};
 if(typeof module==='object'&&module.exports)module.exports=api;else root.StudentStudyDecisions=api;
@@ -305,6 +305,7 @@ function plan(term,files,part,tid){
    if(norm(r.subject)==='ENR003'&&norm(r.group)==='ENR003 - TUTOR')report.errors.push('Nhóm ENR003 - TUTOR chưa được công nhận; không nhập mới, giữ nguyên lịch sử cũ để đối chiếu.');
    if(termId(r.term)!==tid)report.errors.push('Học kỳ nguồn không khớp học kỳ đang chọn.');
    if(!r.subject||!r.group||!/^\d{4}-\d{2}-\d{2}$/.test(r.date||'')||!Number.isFinite(Date.parse(r.date+'T00:00:00Z'))||new Date(r.date+'T00:00:00Z').toISOString().slice(0,10)!==r.date||!Number.isInteger(r.slots)||r.slots<=0||!Number.isInteger(r.absent)||r.absent<0||r.absent>r.slots)report.errors.push('Mã môn, nhóm lớp, ngày hoặc số slot không hợp lệ.');
+   if(r.start&&r.date<r.start)report.errors.push('Ngày chốt trước ngày bắt đầu lớp; không dùng dòng này làm số liệu vắng. Kiểm tra ngày dữ liệu đã chọn.');
    const scope=chosen?chosen.part:prior==='full'||full.has(r.subject)?'full':prior||part;report.part=scope;
    if(scope!=='full'&&scope!==part)report.errors.push(P.label(scope)+' / nhóm '+r.group+' không thuộc Part '+part+' và không được đánh dấu Cả kỳ; bỏ qua, giữ dữ liệu cũ.');
    if(!prior&&oldGroups.has(k)&&part===2&&!full.has(r.subject))report.errors.push('Nhóm cũ chưa phân Part. Phân dữ liệu cũ trước khi nhập Part 2.');
@@ -2811,7 +2812,7 @@ sections.forEach((x,i)=>x.b.onclick=()=>show(i));show(0);if(oldLogPanel)oldLogPa
    try{
     plan=await RegistryCloud.previewStudy({studentId:c.studentId,subject:c.subject,kind:q('[data-kind]').value,source:selector('source'),target:selector('target'),cumulativeConfirmed:q('[data-cumulative]').checked});requestId=crypto.randomUUID();
     const table=document.createElement('table'),head=table.createTHead().insertRow();['Lượt','Ngày chốt mới nhất','Vắng / tổng slot','Tỷ lệ'].forEach(text=>{const th=document.createElement('th');th.textContent=text;head.append(th);});const body=table.createTBody();
-    for(const a of plan.attempts){const tr=body.insertRow();[a.number,a.last?a.last.split('-').reverse().join('/'):'Chưa nhập điểm danh',a.absent+' / '+a.slots,a.percent.toLocaleString('vi-VN',{minimumFractionDigits:2,maximumFractionDigits:2})+'%'].forEach(text=>{tr.insertCell().textContent=text;});}
+    for(const a of plan.attempts){const tr=body.insertRow();[a.number,a.last?a.last.split('-').reverse().join('/'):'Chưa nhập điểm danh',a.absent==null?'Chưa có dữ liệu':a.absent+' / '+a.slots,a.percent==null?'—':a.percent.toLocaleString('vi-VN',{minimumFractionDigits:2,maximumFractionDigits:2})+'%'].forEach(text=>{tr.insertCell().textContent=text;});}
     q('[data-result]').replaceChildren(table);q('[data-status]').textContent=plan.sourceCount+' bản ghi cũ · '+plan.targetCount+' bản ghi mới. Chỉ xác nhận khi phân loại và số liệu đúng.';
    }catch(e){plan=null;q('[data-status]').textContent=e.message;}finally{lock(false);}
   };

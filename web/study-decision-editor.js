@@ -19,7 +19,7 @@
    try{
     plan=await RegistryCloud.previewStudy({studentId:c.studentId,subject:c.subject,kind:q('[data-kind]').value,source:selector('source'),target:selector('target'),cumulativeConfirmed:q('[data-cumulative]').checked});requestId=crypto.randomUUID();
     const table=document.createElement('table'),head=table.createTHead().insertRow();['Lượt','Ngày chốt mới nhất','Vắng / tổng slot','Tỷ lệ'].forEach(text=>{const th=document.createElement('th');th.textContent=text;head.append(th);});const body=table.createTBody();
-    for(const a of plan.attempts){const tr=body.insertRow();[a.number,a.last?a.last.split('-').reverse().join('/'):'Chưa nhập điểm danh',a.absent+' / '+a.slots,a.percent.toLocaleString('vi-VN',{minimumFractionDigits:2,maximumFractionDigits:2})+'%'].forEach(text=>{tr.insertCell().textContent=text;});}
+    for(const a of plan.attempts){const tr=body.insertRow();[a.number,a.last?a.last.split('-').reverse().join('/'):'Chưa nhập điểm danh',a.absent==null?'Chưa có dữ liệu':a.absent+' / '+a.slots,a.percent==null?'—':a.percent.toLocaleString('vi-VN',{minimumFractionDigits:2,maximumFractionDigits:2})+'%'].forEach(text=>{tr.insertCell().textContent=text;});}
     q('[data-result]').replaceChildren(table);q('[data-status]').textContent=plan.sourceCount+' bản ghi cũ · '+plan.targetCount+' bản ghi mới. Chỉ xác nhận khi phân loại và số liệu đúng.';
    }catch(e){plan=null;q('[data-status]').textContent=e.message;}finally{lock(false);}
   };
